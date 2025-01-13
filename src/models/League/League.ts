@@ -60,6 +60,10 @@ export class League {
             json.userTeam
         );
     }
+
+    getPlayer(id: number): Player | undefined {
+        return this.players.find(p => p.id === id);
+    }
 }
 
 

@@ -4,6 +4,8 @@ import { TeamLineup } from '../models/Team/TeamLineup';
 import { ScheduleGame } from '../models/Season/ScheduleGame';
 import { Stadium } from '../models/Stadium/Stadium';
 import { GameType } from '../models/Season/GameType';
+import { LineupGenerator } from '../models/Team/LineupGenerator';
+import { BowlingStyle } from '../models/Player/BowlingStyle';
 
 const SEASON_KEY = 'current_season';
 const LINEUPS_KEY = 'team_lineups';
@@ -41,6 +43,22 @@ export class SeasonScreen {
         if (screen.currentSeason.schedule.length === 0) {
             screen.generateNewSchedule();
         }
+
+        // Generate missing lineups for teams
+        const teams = screen.league.teams.filter(t => t.id !== 0); // Exclude free agents
+        for (const team of teams) {
+            if (!screen.teamLineups.has(team.id)) {
+                try {
+                    const players = screen.league.players.filter(p => team.players.includes(p.id));
+                    const lineup = LineupGenerator.generateLineup(players);
+                    screen.teamLineups.set(team.id, lineup);
+                } catch (error) {
+                    console.error(`Failed to generate lineup for team ${team.name}:`, error);
+                    const fallbackLineup = new TeamLineup(team.id, [], [], -1); // Use -1 as a sentinel value for no wicket keeper
+                    screen.teamLineups.set(team.id, fallbackLineup);
+                }
+            }
+        }
         
         return screen;
     }
@@ -66,13 +84,18 @@ export class SeasonScreen {
     getTeamLineup(teamId: number): TeamLineup {
         let lineup = this.teamLineups.get(teamId);
         if (!lineup) {
-            lineup = new TeamLineup(teamId, [], [], undefined);
+            lineup = new TeamLineup(teamId, [], [], -1); // Use -1 as a sentinel value for no wicket keeper
             this.teamLineups.set(teamId, lineup);
         }
         return lineup;
     }
 
     setTeamLineup(teamId: number, lineup: TeamLineup): string | null {
+        // First check if this is the user's team
+        if (teamId !== this.league.userTeam) {
+            return 'You can only edit your own team\'s lineup';
+        }
+
         // Validate lineup
         const team = this.league.teams.find(t => t.id === teamId);
         if (!team) return 'Team not found';
@@ -93,15 +116,35 @@ export class SeasonScreen {
 
         // Check bowling order
         const bowlingOrder = lineup.bowlingOrder.filter(id => id !== 0);
-        if (bowlingOrder.length < 6) {
-            return 'Must select at least 6 bowlers';
+        if (bowlingOrder.length !== 20) {
+            return 'Must assign all 20 overs in bowling order';
         }
-        if (new Set(bowlingOrder).size !== bowlingOrder.length) {
-            return 'Cannot have duplicate bowlers';
+        
+        // Check for consecutive overs by same bowler
+        for (let i = 1; i < bowlingOrder.length; i++) {
+            if (bowlingOrder[i] === bowlingOrder[i - 1]) {
+                return `Bowler ${bowlingOrder[i]} cannot bowl consecutive overs ${i} and ${i + 1}`;
+            }
         }
+
+        // Check max overs per bowler
+        const bowlerOvers = new Map<number, number>();
+        bowlingOrder.forEach(id => {
+            bowlerOvers.set(id, (bowlerOvers.get(id) || 0) + 1);
+        });
+        
+        // Convert Map entries to array for iteration
+        const overCounts = Array.from(bowlerOvers.entries());
+        for (const [bowlerId, overs] of overCounts) {
+            if (overs > 4) {
+                return `Bowler ${bowlerId} cannot bowl more than 4 overs (assigned ${overs})`;
+            }
+        }
+
+        // Validate bowlers can actually bowl
         if (!bowlingOrder.every(id => {
             const player = players.find(p => p.id === id);
-            return player && player.bowlingStyle !== 'None';
+            return player && player.bowlingStyle !== BowlingStyle.NONE;
         })) {
             return 'Invalid bowler in bowling order';
         }
@@ -115,7 +158,7 @@ export class SeasonScreen {
             return 'Selected player cannot be wicket keeper';
         }
 
-        this.teamLineups.set(teamId, lineup);
+        team.lineup = lineup;
         return null;
     }
 

@@ -83,7 +83,7 @@ export class Player {
             json.battingStyle,
             json.bowlingStyle,
             json.wicketKeeper,
-            json.playerRatings.map(rating => PlayerRatings.fromJSON(rating)),
+            json.playerRatings.map(rating => PlayerRatings.fromJSON(rating, json.bowlingStyle !== BowlingStyle.NONE)),
             json.playerStats.map(stats => PlayerStats.fromJSON(stats))
         );
     }
@@ -94,7 +94,7 @@ export class Player {
 
         // Ensure we have a proper PlayerRatings instance
         const ratings = latestRatings instanceof PlayerRatings ? 
-            latestRatings : PlayerRatings.fromJSON(latestRatings);
+            latestRatings : PlayerRatings.fromJSON(latestRatings, this.bowlingStyle !== BowlingStyle.NONE);
 
         const battingRating = ratings.calcBattingRating();
         const bowlingRating = ratings.calcBowlingRating();

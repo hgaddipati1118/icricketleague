@@ -101,11 +101,26 @@ export class PlayerRatings {
     }
 
     calcOverallRating(): number {
-        if (this.bowling === 0) {
-            this.overall = Math.round(0.6 * this.batting + 0.4 * this.fieldingOverall);
+        const battingRating = this.calcBattingRating();
+        const bowlingRating = this.calcBowlingRating();
+        const fieldingRating = this.calcFieldingRating();
+
+        // Calculate overall rating based on the highest of batting/bowling
+        // with a contribution from the other skill and fielding
+        let expectedOverall;
+        if (battingRating > bowlingRating) {
+            const otherSkillContribution = Math.pow((bowlingRating / 100), 4);
+            expectedOverall = battingRating + (100 - battingRating) * otherSkillContribution;
         } else {
-            this.overall = Math.round(0.4 * this.batting + 0.4 * this.bowling + 0.2 * this.fieldingOverall);
+            const otherSkillContribution = Math.pow((battingRating / 100), 4);
+            expectedOverall = bowlingRating + (100 - bowlingRating) * otherSkillContribution;
         }
+
+        // Add fielding contribution
+        const fieldingContribution = Math.pow((fieldingRating / 100), 4);
+        expectedOverall = expectedOverall + 0.2 * (100 - expectedOverall) * fieldingContribution;
+
+        this.overall = Math.round(expectedOverall);
         return this.overall;
     }
 

@@ -66,10 +66,13 @@ export function DraftScreenComponent({ draftScreen }: DraftScreenComponentProps)
     };
 
     const handleSimulateNext = useCallback(() => {
-        draftScreen.simulateNextPick();
-        setDraftStatus(draftScreen.getDraftStatus());
-    }, [draftScreen]);
+        if (!draftStatus.isDraftComplete) {
+            draftScreen.simulateNextPick();
+            setDraftStatus(draftScreen.getDraftStatus());
+        }
+    }, [draftScreen, draftStatus.isDraftComplete]);
 
+    // Auto-simulate AI picks
     useEffect(() => {
         if (!isUserTeamTurn && !draftStatus.isDraftComplete) {
             const timeoutId = setTimeout(handleSimulateNext, 1000);
@@ -133,16 +136,25 @@ export function DraftScreenComponent({ draftScreen }: DraftScreenComponentProps)
                         <p className="text-blue-600 font-medium">Your Turn to Draft!</p>
                     )}
                     {(() => {
-                        const stadium = draftScreen.getLeague().stadiums.find(s => s.id === draftStatus.currentTeam.stadium);
+                        const team = draftStatus.currentTeam;
+                        const stadium = draftScreen.getLeague().stadiums.find(s => s.id === team.stadium);
                         if (stadium) {
                             return (
                                 <div className="mt-2 text-sm text-gray-600">
                                     <p>Home: {stadium.name}</p>
-                                    <p>Pitch: {stadium.pitchType} • Boundary: {stadium.boundarySize}</p>
+                                    <p>
+                                        Pitch: {stadium.pitchType} • Boundary: {stadium.boundarySize} • 
+                                        {stadium.battingFriendly > 70 ? ' Batting Paradise' :
+                                         stadium.battingFriendly > 55 ? ' Batting Friendly' :
+                                         stadium.battingFriendly > 45 ? ' Balanced' :
+                                         stadium.battingFriendly > 30 ? ' Bowling Friendly' :
+                                         ' Bowler\'s Paradise'}
+                                    </p>
                                     <p>Capacity: {stadium.capacity.toLocaleString()}</p>
                                 </div>
                             );
                         }
+                        return null;
                     })()}
                 </div>
                 <div className="flex flex-col gap-2">
@@ -278,70 +290,100 @@ export function DraftScreenComponent({ draftScreen }: DraftScreenComponentProps)
                 </div>
             )}
 
-            <div className="flex gap-2 flex-wrap">
-                <select 
-                    className="px-3 py-2 border rounded"
-                    value={sortCategory}
-                    onChange={(e) => handleSort(e.target.value as SortCategory)}
-                >
-                    {sortOptions.map(option => (
-                        <option key={option.value} value={option.value}>
-                            Sort by {option.label}
-                        </option>
-                    ))}
-                </select>
+            <div className="flex gap-4 flex-wrap items-center mb-4">
+                <div className="flex gap-2">
+                    <select 
+                        className="px-3 py-2 border rounded bg-white hover:bg-gray-50"
+                        value={sortCategory}
+                        onChange={(e) => handleSort(e.target.value as SortCategory)}
+                    >
+                        {sortOptions.map(option => (
+                            <option key={option.value} value={option.value}>
+                                Sort by {option.label}
+                            </option>
+                        ))}
+                    </select>
 
-                <select
-                    className="px-3 py-2 border rounded"
-                    value={filters.hand || 'all'}
-                    onChange={(e) => handleFilterChange('hand', e.target.value)}
-                >
-                    <option value="all">All Hands</option>
-                    {Object.values(Hand).map(hand => (
-                        <option key={hand} value={hand}>{hand}</option>
-                    ))}
-                </select>
+                    <select
+                        className="px-3 py-2 border rounded bg-white hover:bg-gray-50"
+                        value={filters.hand || 'all'}
+                        onChange={(e) => handleFilterChange('hand', e.target.value)}
+                    >
+                        <option value="all">All Hands</option>
+                        {Object.values(Hand).map(hand => (
+                            <option key={hand} value={hand}>{hand}</option>
+                        ))}
+                    </select>
 
-                <select
-                    className="px-3 py-2 border rounded"
-                    value={filters.battingStyle || 'all'}
-                    onChange={(e) => handleFilterChange('battingStyle', e.target.value)}
-                >
-                    <option value="all">All Batting Styles</option>
-                    {Object.values(BattingStyle).map(style => (
-                        <option key={style} value={style}>{style}</option>
-                    ))}
-                </select>
+                    <select
+                        className="px-3 py-2 border rounded bg-white hover:bg-gray-50"
+                        value={filters.battingStyle || 'all'}
+                        onChange={(e) => handleFilterChange('battingStyle', e.target.value)}
+                    >
+                        <option value="all">All Batting Styles</option>
+                        {Object.values(BattingStyle).map(style => (
+                            <option key={style} value={style}>{style}</option>
+                        ))}
+                    </select>
 
-                <select
-                    className="px-3 py-2 border rounded"
-                    value={filters.bowlingStyle || 'all'}
-                    onChange={(e) => handleFilterChange('bowlingStyle', e.target.value)}
-                >
-                    <option value="all">All Bowling Styles</option>
-                    {Object.values(BowlingStyle).map(style => (
-                        <option key={style} value={style}>{style}</option>
-                    ))}
-                </select>
+                    <select
+                        className="px-3 py-2 border rounded bg-white hover:bg-gray-50"
+                        value={filters.bowlingStyle || 'all'}
+                        onChange={(e) => handleFilterChange('bowlingStyle', e.target.value)}
+                    >
+                        <option value="all">All Bowling Styles</option>
+                        {Object.values(BowlingStyle).map(style => (
+                            <option key={style} value={style}>{style}</option>
+                        ))}
+                    </select>
+                </div>
 
-                <button
-                    onClick={() => {
-                        setFilters({ hand: undefined, battingStyle: undefined, bowlingStyle: undefined });
-                        draftScreen.clearFilters();
-                        setDraftStatus(draftScreen.getDraftStatus());
-                    }}
-                    className="px-3 py-2 bg-gray-100 hover:bg-gray-200 rounded"
-                >
-                    Clear Filters
-                </button>
+                <div className="flex gap-2">
+                    <button
+                        onClick={() => {
+                            setFilters({ hand: undefined, battingStyle: undefined, bowlingStyle: undefined });
+                            draftScreen.clearFilters();
+                            setDraftStatus(draftScreen.getDraftStatus());
+                        }}
+                        className="px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded font-medium"
+                    >
+                        Clear Filters
+                    </button>
 
-                <button
-                    onClick={handleSimulateNext}
-                    disabled={isUserTeamTurn || draftStatus.isDraftComplete}
-                    className="px-3 py-2 bg-gray-100 hover:bg-gray-200 rounded disabled:opacity-50"
-                >
-                    Simulate Next Pick
-                </button>
+                    <button
+                        onClick={() => {
+                            if (isUserTeamTurn && !draftStatus.isDraftComplete) {
+                                draftScreen.simulateNextPick(true);
+                                setDraftStatus(draftScreen.getDraftStatus());
+                            }
+                        }}
+                        className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 disabled:opacity-50 font-medium"
+                        disabled={!isUserTeamTurn || draftStatus.isDraftComplete}
+                    >
+                        Auto Pick
+                    </button>
+
+                    <button
+                        onClick={() => {
+                            const simulate = () => {
+                                if (!draftScreen.getDraftStatus().isDraftComplete) {
+                                    const status = draftScreen.getDraftStatus();
+                                    // Pass true for allowUserTeam when it's the user's turn
+                                    const isUserTurn = status.currentTeam.id === draftScreen.getLeague().userTeam;
+                                    draftScreen.simulateNextPick(isUserTurn);
+                                    const newStatus = draftScreen.getDraftStatus();
+                                    setDraftStatus(newStatus);
+                                    setTimeout(simulate, 1000);
+                                }
+                            };
+                            simulate();
+                        }}
+                        className="px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600 disabled:opacity-50 font-medium"
+                        disabled={draftStatus.isDraftComplete}
+                    >
+                        Simulate Rest of Draft
+                    </button>
+                </div>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">

@@ -3,6 +3,7 @@ import { Hand } from '../models/Player/Hand';
 import { BattingStyle } from '../models/Player/BattingStyle';
 import { BowlingStyle } from '../models/Player/BowlingStyle';
 import { PlayerRatings } from '../models/Player/PlayerRatings';
+import { League } from '../models/League/League';
 
 const countries = ['India', 'Australia', 'England', 'New Zealand', 'Pakistan', 'South Africa', 'West Indies'];
 
@@ -101,8 +102,9 @@ function generateNameForCountry(country: string): string {
     return `${firstName} ${lastName}`;
 }
 
-function generatePlayerRatings(seasonId: number): PlayerRatings {
+function generatePlayerRatings(seasonId: number, isBowler: boolean): PlayerRatings {
     return new PlayerRatings(
+        isBowler,
         seasonId,
         Math.floor(Math.random() * 100),
         Math.floor(Math.random() * 100),
@@ -119,9 +121,15 @@ function generatePlayerRatings(seasonId: number): PlayerRatings {
     );
 }
 
-function generateRandomPlayer(id: number): Player {
+function generateRandomPlayer(id: number, forceWicketKeeper: boolean = false): Player {
     const country = countries[Math.floor(Math.random() * countries.length)];
     const name = generateNameForCountry(country);
+    
+    // If wicket keeper, force bowling style to NONE
+    const isWicketKeeper = forceWicketKeeper || Math.random() > 0.9;
+    const bowlingStyle = isWicketKeeper ? 
+        BowlingStyle.NONE : 
+        Object.values(BowlingStyle)[Math.floor(Math.random() * Object.values(BowlingStyle).length)];
     
     return new Player(
         id,
@@ -131,11 +139,36 @@ function generateRandomPlayer(id: number): Player {
         '',
         Math.random() > 0.15 ? Hand.RIGHT_HANDED : Hand.LEFT_HANDED,
         Object.values(BattingStyle)[Math.floor(Math.random() * Object.values(BattingStyle).length)],
-        Object.values(BowlingStyle)[Math.floor(Math.random() * Object.values(BowlingStyle).length)],
-        Math.random() > 0.9,
-        [generatePlayerRatings(0)],
+        bowlingStyle,
+        isWicketKeeper,
+        [generatePlayerRatings(0, bowlingStyle !== BowlingStyle.NONE)],
         []
     );
 }
 
-export default generateRandomPlayer; 
+function generateDraftPool(league: League): Player[] {
+    // Calculate total players needed
+    const teamsCount = league.teams.length - 1; // Exclude free agents team
+    const playersPerTeam = league.type.MAX_PLAYERS_PER_TEAM;
+    const totalPlayersNeeded = teamsCount * playersPerTeam;
+    
+    // Generate 5x the needed amount
+    const poolSize = totalPlayersNeeded * 5;
+    const players: Player[] = [];
+    
+    // First generate enough wicket keepers (2 per team to be safe)
+    const wicketKeepersNeeded = teamsCount * 2;
+    for (let i = 0; i < wicketKeepersNeeded; i++) {
+        const player = generateRandomPlayer(i + 1, true);
+        players.push(player);
+    }
+    
+    // Then generate the rest of the players
+    for (let i = wicketKeepersNeeded; i < poolSize; i++) {
+        players.push(generateRandomPlayer(i + 1));
+    }
+    
+    return players;
+}
+
+export { generateRandomPlayer, generateDraftPool }; 

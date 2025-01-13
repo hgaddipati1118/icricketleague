@@ -65,8 +65,8 @@ export default function LeagueSetupPage() {
         e.preventDefault();
         if (!selectedTeamId) return;
 
-        // Delete any existing league with the same name
-        LocalStorageManager.deleteLeagueByName(leagueName);
+        // Clear all existing league data
+        LocalStorageManager.clearAll();
 
         LocalStorageManager.saveLeagueSetup(leagueName, teamCount);
         LocalStorageManager.saveTeamSelection(selectedTeamId);

@@ -3,23 +3,23 @@ export class FieldingStats {
     runOuts: number;
     stumpings: number;
     missedCatches: number;
-    missedRunOuts: number;
     missedStumpings: number;
+    missedRunOuts: number;
 
     constructor(
         catches: number = 0,
         runOuts: number = 0,
         stumpings: number = 0,
         missedCatches: number = 0,
-        missedRunOuts: number = 0,
-        missedStumpings: number = 0
+        missedStumpings: number = 0,
+        missedRunOuts: number = 0
     ) {
         this.catches = catches;
         this.runOuts = runOuts;
         this.stumpings = stumpings;
         this.missedCatches = missedCatches;
-        this.missedRunOuts = missedRunOuts;
         this.missedStumpings = missedStumpings;
+        this.missedRunOuts = missedRunOuts;
     }
 
     toJSON() {
@@ -28,26 +28,19 @@ export class FieldingStats {
             runOuts: this.runOuts,
             stumpings: this.stumpings,
             missedCatches: this.missedCatches,
-            missedRunOuts: this.missedRunOuts,
-            missedStumpings: this.missedStumpings
+            missedStumpings: this.missedStumpings,
+            missedRunOuts: this.missedRunOuts
         };
     }
 
-    static fromJSON(json: {
-        catches: number;
-        runOuts: number;
-        stumpings: number;
-        missedCatches: number;
-        missedRunOuts: number;
-        missedStumpings: number;
-    }): FieldingStats {
+    static fromJSON(json: ReturnType<FieldingStats['toJSON']>): FieldingStats {
         return new FieldingStats(
             json.catches,
             json.runOuts,
             json.stumpings,
             json.missedCatches,
-            json.missedRunOuts,
-            json.missedStumpings
+            json.missedStumpings,
+            json.missedRunOuts
         );
     }
 }

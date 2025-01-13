@@ -3,12 +3,26 @@ import { Team } from '../models/Team/Team';
 import { Player } from '../models/Player/Player';
 import { PlayerRatings } from '../models/Player/PlayerRatings';
 import { FilterType } from '../models/Draft/FilterType';
+import { BowlingStyle } from '../models/Player/BowlingStyle';
+import { LineupGenerator } from '../models/Team/LineupGenerator';
+import { generateRandomPlayer } from '../utils/PlayerGenerator';
+import { LocalStorageManager } from '../utils/LocalStorageManager';
 
 type RatingProperty = 'power' | 'technical' | 'defensive' | 'temperament' | 'economy' | 'control' | 'wicketTaking' | 'clutch' | 'fitness' | 'leadership' | 'consistency' | 'fielding';
 type SortCategory = 'overall' | 'battingOverall' | 'bowlingOverall' | 'fieldingOverall' | RatingProperty;
 
+interface DraftScreenJSON {
+    league: ReturnType<typeof League.prototype.toJSON>;
+    userTeamId: number;
+    currentTeamIndex: number;
+    currentRound: number;
+    filters: FilterType;
+}
+
 export class DraftScreen {
     private league: League;
+    private userTeamId: number;
+    private isDraftCompleted: boolean = false;
     private currentTeamIndex: number;
     private currentRound: number;
     private draftOrder: number[];
@@ -17,11 +31,20 @@ export class DraftScreen {
     private currentSortCategory: SortCategory = 'overall';
     private filters: FilterType = {};
 
-    constructor(league: League) {
+    constructor(league: League, userTeamId: number) {
         this.league = league;
+        this.userTeamId = userTeamId;
         this.currentTeamIndex = 0;
         this.currentRound = 1;
         this.draftOrder = this.generateDraftOrder();
+        
+        // Make sure all players are in free agents team initially
+        const freeAgents = league.teams.find(team => team.id === 0)!;
+        if (!freeAgents.players.length) {
+            freeAgents.players = league.players.map(p => p.id);
+        }
+        
+        // Initialize available players
         this.availablePlayers = this.getAvailablePlayers();
         this.draftHistory = [];
     }
@@ -48,40 +71,29 @@ export class DraftScreen {
     }
 
     private getAvailablePlayers(): Player[] {
-        const freeAgentsTeam = this.league.teams.find(team => team.id === 0);
-        if (!freeAgentsTeam || !Array.isArray(freeAgentsTeam.players)) {
-            console.error('No free agents team found or players is not an array');
-            return [];
-        }
-
-        let players = freeAgentsTeam.players
-            .map(playerId => this.league.players.find(p => p.id === playerId))
-            .filter((p): p is Player => p !== undefined);
+        // Get players that are drafted to actual teams (not free agents)
+        const draftedPlayerIds = new Set(
+            this.league.teams
+                .filter(t => t.id !== 0) // Exclude free agents team
+                .flatMap(t => t.players)
+        );
+        let availablePlayers = this.league.players.filter(p => !draftedPlayerIds.has(p.id));
 
         // Apply filters
         if (this.filters.hand) {
-            players = players.filter(p => p.hand === this.filters.hand);
+            availablePlayers = availablePlayers.filter(p => p.hand === this.filters.hand);
         }
         if (this.filters.battingStyle) {
-            players = players.filter(p => p.battingStyle === this.filters.battingStyle);
+            availablePlayers = availablePlayers.filter(p => p.battingStyle === this.filters.battingStyle);
         }
         if (this.filters.bowlingStyle) {
-            players = players.filter(p => p.bowlingStyle === this.filters.bowlingStyle);
-        }
-        if (this.filters.wicketkeeper !== undefined) {
-            players = players.filter(p => p.wicketKeeper === this.filters.wicketkeeper);
-        }
-        if (this.filters.minAge !== undefined) {
-            players = players.filter(p => p.age >= this.filters.minAge!);
-        }
-        if (this.filters.maxAge !== undefined) {
-            players = players.filter(p => p.age <= this.filters.maxAge!);
+            availablePlayers = availablePlayers.filter(p => p.bowlingStyle === this.filters.bowlingStyle);
         }
 
-        // Sort by current sort category
-        const sortedPlayers = [...players];
-        this.sortPlayersByRating(sortedPlayers, this.currentSortCategory);
-        return sortedPlayers;
+        // Sort players by current sort category
+        this.sortPlayersByRating(availablePlayers, this.currentSortCategory);
+
+        return availablePlayers;
     }
 
     getCurrentTeam(): Team {
@@ -112,6 +124,17 @@ export class DraftScreen {
         const currentTeam = this.getCurrentTeam();
         const freeAgentsTeam = this.league.teams.find(team => team.id === 0)!;
 
+        console.log('\n=== Draft Player Debug Info ===');
+        console.log('Current Team:', {
+            id: currentTeam.id,
+            name: currentTeam.name,
+            currentPlayers: currentTeam.players
+        });
+        console.log('Player being drafted:', {
+            id: playerId,
+            player: this.league.players.find(p => p.id === playerId)
+        });
+
         // Validate team composition
         const error = this.validateTeamComposition(currentTeam, playerId);
         if (error) {
@@ -121,6 +144,12 @@ export class DraftScreen {
         // Move player from free agents to current team
         freeAgentsTeam.players = freeAgentsTeam.players.filter(id => id !== playerId);
         currentTeam.players.push(playerId);
+
+        console.log('Team after draft:', {
+            id: currentTeam.id,
+            name: currentTeam.name,
+            updatedPlayers: currentTeam.players
+        });
 
         // Add to draft history
         this.draftHistory.push({ playerId, teamId: currentTeam.id });
@@ -137,14 +166,43 @@ export class DraftScreen {
         // Update available players
         this.availablePlayers = this.getAvailablePlayers();
 
-        // Save to local storage
+        // If draft is complete, generate lineups for all teams
+        if (this.isDraftComplete()) {
+            console.log('\n=== Draft Complete - Generating Lineups ===');
+            const teams = this.league.teams.filter(t => t.id !== 0);
+            for (const team of teams) {
+                // Get all players for this team
+                const players = this.league.players.filter(p => team.players.includes(p.id));
+                console.log(`\nGenerating lineup for team ${team.name}:`, {
+                    teamId: team.id,
+                    playerCount: players.length,
+                    players: players.map(p => ({
+                        id: p.id,
+                        name: p.name,
+                        isWicketKeeper: p.wicketKeeper,
+                        bowlingStyle: p.bowlingStyle
+                    }))
+                });
+                try {
+                    team.lineup = LineupGenerator.generateLineup(players);
+                } catch (error) {
+                    console.error(`Failed to generate lineup for team ${team.name}:`, error);
+                }
+            }
+            console.log('=== End Lineup Generation ===\n');
+
+            // Save the final league state with all drafted players and lineups
+            LocalStorageManager.saveLeague(this.league);
+        }
+
+        // Save draft state
         this.saveToLocalStorage();
     }
 
     isDraftComplete(): boolean {
-        // Draft is complete when all teams have max players
+        // Check that all teams (except free agents) have exactly the max number of players
         return this.league.teams.every(team => 
-            team.id === 0 || team.players.length >= this.league.type.MAX_PLAYERS_PER_TEAM
+            team.id === 0 || team.players.length === this.league.type.MAX_PLAYERS_PER_TEAM
         );
     }
 
@@ -154,7 +212,7 @@ export class DraftScreen {
         
         // Ensure we have a proper PlayerRatings instance
         if (!(latestRatings instanceof PlayerRatings)) {
-            return PlayerRatings.fromJSON(latestRatings).calcOverallRating();
+            return PlayerRatings.fromJSON(latestRatings, player.bowlingStyle !== BowlingStyle.NONE).calcOverallRating();
         }
         
         return latestRatings.calcOverallRating();
@@ -194,8 +252,8 @@ export class DraftScreen {
             if (!aRatings || !bRatings) return 0;
 
             // Ensure we have proper PlayerRatings instances
-            const aRatingObj = aRatings instanceof PlayerRatings ? aRatings : PlayerRatings.fromJSON(aRatings);
-            const bRatingObj = bRatings instanceof PlayerRatings ? bRatings : PlayerRatings.fromJSON(bRatings);
+            const aRatingObj = aRatings instanceof PlayerRatings ? aRatings : PlayerRatings.fromJSON(aRatings, a.bowlingStyle !== BowlingStyle.NONE);
+            const bRatingObj = bRatings instanceof PlayerRatings ? bRatings : PlayerRatings.fromJSON(bRatings, b.bowlingStyle !== BowlingStyle.NONE);
 
             // Get the rating values using our helper method
             const aValue = this.getRatingValue(aRatingObj, category);
@@ -228,60 +286,83 @@ export class DraftScreen {
         };
     }
 
-    simulateNextPick(): void {
+    simulateNextPick(allowUserTeam: boolean = false): void {
         if (this.isDraftComplete()) return;
 
         const currentTeam = this.getCurrentTeam();
-        if (currentTeam.id === this.league.userTeam) return;
+        // Only skip user team if not explicitly allowed
+        if (!allowUserTeam && currentTeam.id === this.userTeamId) return;
 
-        const teamNeeds = this.getTeamNeeds(currentTeam);
-        const picksRemaining = this.league.type.MAX_PLAYERS_PER_TEAM - currentTeam.players.length;
+        // Ensure enough valid players before simulating
+        this.ensureEnoughValidPlayers();
 
-        // Sort available players by overall rating with some randomness
-        const sortedPlayers = [...this.availablePlayers].sort((a, b) => {
-            const ratingA = this.calculateOverallRating(a);
-            const ratingB = this.calculateOverallRating(b);
-            // Add some randomness (±5 points) to prevent always picking the absolute best
-            const randomFactorA = Math.random() * 10 - 5;
-            const randomFactorB = Math.random() * 10 - 5;
-            return (ratingB + randomFactorB) - (ratingA + randomFactorA);
+        // Get available players sorted by rating
+        const sortedPlayers = this.getAvailablePlayers()
+            .sort((a, b) => {
+                const aRating = a.playerRatings[a.playerRatings.length - 1];
+                const bRating = b.playerRatings[b.playerRatings.length - 1];
+                if (!aRating || !bRating) return 0;
+                return bRating.calcOverallRating() - aRating.calcOverallRating();
+            });
+
+        if (sortedPlayers.length === 0) {
+            this.markDraftAsComplete();
+            return;
+        }
+
+        // Check team needs
+        const hasWicketKeeper = currentTeam.players.some(playerId => {
+            const player = this.league.getPlayer(playerId);
+            return player?.wicketKeeper;
         });
 
-        // Prioritize wicketkeeper if needed
-        // Try to get one in first half of draft if possible
-        if (teamNeeds.needsWicketKeeper && (picksRemaining >= this.league.type.MAX_PLAYERS_PER_TEAM / 2 || picksRemaining <= 3)) {
-            const wicketKeepers = sortedPlayers.filter(p => p.wicketKeeper);
-            if (wicketKeepers.length > 0) {
-                // Find the best wicket keeper with some randomness
-                const bestWicketKeepers = wicketKeepers
-                    .sort((a, b) => this.calculateOverallRating(b) - this.calculateOverallRating(a))
-                    .slice(0, 3); // Look at top 3 available wicket keepers
-                const selectedKeeper = bestWicketKeepers[Math.floor(Math.random() * bestWicketKeepers.length)];
-                this.draftPlayer(selectedKeeper.id);
+        const needsBowlers = currentTeam.players.filter(playerId => {
+            const player = this.league.getPlayer(playerId);
+            return player?.bowlingStyle !== BowlingStyle.NONE;
+        }).length < 6;
+
+        // Calculate remaining picks for this team
+        const remainingPicks = this.league.type.MAX_PLAYERS_PER_TEAM - currentTeam.players.length;
+
+        // FORCE wicket keeper selection if team doesn't have one and is running out of picks
+        if (!hasWicketKeeper && remainingPicks <= 2) {
+            const wicketKeeper = sortedPlayers.find(p => p.wicketKeeper);
+            if (wicketKeeper) {
+                this.draftPlayer(wicketKeeper.id);
+                return;
+            } else {
+                // If no wicket keeper available, generate one
+                const newKeeper = generateRandomPlayer(Math.max(...this.league.players.map(p => p.id)) + 1, true);
+                this.league.players.push(newKeeper);
+                const freeAgents = this.league.teams.find(t => t.id === 0)!;
+                freeAgents.players.push(newKeeper.id);
+                this.draftPlayer(newKeeper.id);
                 return;
             }
         }
 
-        // Look for best player that fits team needs
-        for (const player of sortedPlayers.slice(0, 5)) { // Look at top 5 available players
-            const role = player.getPlayerRole();
-            
-            // Always take a high-rated all-rounder
-            if (role === 'All-Rounder' && this.calculateOverallRating(player) >= 75) {
-                this.draftPlayer(player.id);
+        // Try to get a wicket keeper early if team doesn't have one
+        if (!hasWicketKeeper && Math.random() < 0.3) {  // 30% chance to pick wicket keeper if needed
+            const wicketKeeper = sortedPlayers.find(p => p.wicketKeeper);
+            if (wicketKeeper) {
+                this.draftPlayer(wicketKeeper.id);
                 return;
             }
-            
-            // Take players that fill team needs
-            if ((role === 'Batter' && teamNeeds.needsBatters) ||
-                (role === 'Bowler' && teamNeeds.needsBowlers)) {
-                this.draftPlayer(player.id);
+        }
+
+        // Try to fill other team needs
+        if (needsBowlers) {
+            const bowler = sortedPlayers.find(p => p.bowlingStyle !== BowlingStyle.NONE);
+            if (bowler) {
+                this.draftPlayer(bowler.id);
                 return;
             }
         }
 
         // If no specific needs, take the best available player
-        this.draftPlayer(sortedPlayers[0].id);
+        if (sortedPlayers.length > 0) {
+            this.draftPlayer(sortedPlayers[0].id);
+        }
     }
 
     simulateToNextUserPick(): void {
@@ -301,8 +382,9 @@ export class DraftScreen {
     getDraftStatus() {
         return {
             currentTeam: this.getCurrentTeam(),
+            availablePlayers: this.getAvailablePlayers(),
             currentRound: this.currentRound,
-            availablePlayers: this.availablePlayers,
+            currentTeamIndex: this.currentTeamIndex,
             isDraftComplete: this.isDraftComplete()
         };
     }
@@ -320,13 +402,12 @@ export class DraftScreen {
         } else {
             delete this.filters[type];
         }
-        // Re-apply filters to available players
-        this.availablePlayers = this.getAvailablePlayers();
+        // No need to update availablePlayers here as it will be updated when getDraftStatus is called
     }
 
     clearFilters(): void {
         this.filters = {};
-        this.availablePlayers = this.getAvailablePlayers();
+        // No need to update availablePlayers here as it will be updated when getDraftStatus is called
     }
 
     getActiveFilters(): FilterType {
@@ -335,7 +416,8 @@ export class DraftScreen {
 
     sortByCategory(category: SortCategory): void {
         this.currentSortCategory = category;
-        this.availablePlayers = this.getAvailablePlayers();
+        // No need to call getAvailablePlayers here as it will be called when getDraftStatus is called
+        // and it will apply both filters and sorting
     }
 
     saveToLocalStorage(): void {
@@ -352,7 +434,7 @@ export class DraftScreen {
 
     static loadFromLocalStorage(league: League): DraftScreen {
         const savedData = localStorage.getItem('draft_state');
-        const draftScreen = new DraftScreen(league);
+        const draftScreen = new DraftScreen(league, league.userTeam);
         
         if (savedData) {
             const data = JSON.parse(savedData);
@@ -363,20 +445,83 @@ export class DraftScreen {
             draftScreen.currentSortCategory = data.currentSortCategory || 'overall';
             draftScreen.filters = data.filters || {};
             
-            // Reconstruct teams based on draft history
+            // Reset all team players
             league.teams.forEach(team => team.players = []);
+            
+            // First, add all players to free agents
             const freeAgents = league.teams.find(team => team.id === 0)!;
             freeAgents.players = league.players.map(p => p.id);
             
+            // Then move drafted players to their teams
             data.draftHistory.forEach(({ playerId, teamId }: { playerId: number; teamId: number }) => {
                 const team = league.teams.find(t => t.id === teamId)!;
                 freeAgents.players = freeAgents.players.filter(id => id !== playerId);
                 team.players.push(playerId);
             });
-            
-            draftScreen.availablePlayers = draftScreen.getAvailablePlayers();
         }
         
+        // Make sure to update available players
+        draftScreen.availablePlayers = draftScreen.getAvailablePlayers();
+        
         return draftScreen;
+    }
+
+    private markDraftAsComplete(): void {
+        this.isDraftCompleted = true;
+    }
+
+    static create(league: League, userTeamId: number): DraftScreen {
+        const draftScreen = new DraftScreen(league, userTeamId);
+        return draftScreen;
+    }
+
+    static fromJSON(json: DraftScreenJSON): DraftScreen {
+        const league = League.fromJSON(json.league);
+        const draftScreen = DraftScreen.create(league, json.userTeamId);
+        draftScreen.currentTeamIndex = json.currentTeamIndex;
+        draftScreen.currentRound = json.currentRound;
+        draftScreen.filters = json.filters || {};
+        return draftScreen;
+    }
+
+    toJSON() {
+        return {
+            league: this.league.toJSON(),
+            userTeamId: this.userTeamId,
+            currentTeamIndex: this.currentTeamIndex,
+            currentRound: this.currentRound,
+            filters: this.filters
+        };
+    }
+
+    private ensureEnoughValidPlayers(): void {
+        const status = this.getDraftStatus();
+        const availablePlayers = status.availablePlayers;
+        
+        // Count available wicket keepers and bowlers
+        const wicketKeepers = availablePlayers.filter(p => p.wicketKeeper);
+        const bowlers = availablePlayers.filter(p => p.bowlingStyle !== BowlingStyle.NONE);
+        
+        // Calculate how many more players we need
+        const teamsCount = this.league.teams.length - 1; // Exclude free agents
+        const minWicketKeepersNeeded = teamsCount; // 1 per team
+        const minBowlersNeeded = teamsCount * 6; // 6 per team
+        
+        // Generate more players if needed
+        let nextId = Math.max(...availablePlayers.map(p => p.id)) + 1;
+        
+        // Add wicket keepers if needed
+        while (wicketKeepers.length < minWicketKeepersNeeded) {
+            const newKeeper = generateRandomPlayer(nextId++, true);
+            this.league.players.push(newKeeper);
+        }
+        
+        // Add bowlers if needed
+        while (bowlers.length < minBowlersNeeded) {
+            const newBowler = generateRandomPlayer(nextId++);
+            if (newBowler.bowlingStyle !== BowlingStyle.NONE) {
+                this.league.players.push(newBowler);
+            }
+        }
     }
 } 

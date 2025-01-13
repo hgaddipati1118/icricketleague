@@ -2,13 +2,25 @@ export class TeamLineup {
     teamId: number;
     battingOrder: number[];
     bowlingOrder: number[];
-    wicketKeeper: number | undefined;
+    wicketKeeper: number;
 
-    constructor(teamId: number, battingOrder: number[], bowlingOrder: number[], wicketKeeper: number | undefined) {
+    constructor(
+        teamId: number,
+        battingOrder: number[],
+        bowlingOrder: number[],
+        wicketKeeper: number
+    ) {
         this.teamId = teamId;
-        this.battingOrder = battingOrder;
-        this.bowlingOrder = bowlingOrder;
         this.wicketKeeper = wicketKeeper;
+        
+        // Only add wicketkeeper to non-empty batting orders
+        if (battingOrder.length > 0 && !battingOrder.includes(wicketKeeper)) {
+            this.battingOrder = [...battingOrder.slice(0, -1), wicketKeeper];
+        } else {
+            this.battingOrder = [...battingOrder];
+        }
+        
+        this.bowlingOrder = [...bowlingOrder];
     }
 
     toJSON() {
@@ -20,12 +32,7 @@ export class TeamLineup {
         };
     }
 
-    static fromJSON(json: {
-        teamId: number,
-        battingOrder: number[],
-        bowlingOrder: number[],
-        wicketKeeper: number | undefined
-    }): TeamLineup {
+    static fromJSON(json: ReturnType<TeamLineup['toJSON']>): TeamLineup {
         return new TeamLineup(
             json.teamId,
             json.battingOrder,
