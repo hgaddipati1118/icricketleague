@@ -4,17 +4,12 @@ import { BowlingStyle } from '../Player/BowlingStyle';
 
 export class LineupGenerator {
     static generateLineup(players: Player[]): TeamLineup {
-        console.log('\n=== Lineup Generation Debug Info ===');
 
         // 1. Select best wicket keeper
         const wicketKeeper = this.selectBestWicketKeeper(players);
         if (!wicketKeeper) {
             throw new Error("No wicket keeper available");
         }
-        console.log('\nSelected Wicket Keeper:', {
-            id: wicketKeeper.id,
-            name: wicketKeeper.name
-        });
 
         // 2. Select all available bowlers from the team and sort by rating
         const allBowlers = players.filter(p => p.bowlingStyle !== BowlingStyle.NONE)
@@ -69,12 +64,6 @@ export class LineupGenerator {
             bestBowlers.push(...additionalSpin);
         }
 
-        console.log('\nSelected Bowlers:', bestBowlers.map(b => ({
-            id: b.id,
-            name: b.name,
-            style: b.bowlingStyle,
-            rating: b.playerRatings[b.playerRatings.length - 1]?.calcBowlingRating()
-        })));
 
         // 3. Create initial team with keeper and selected bowlers
         const teamPlayers = new Set<Player>();
@@ -122,28 +111,6 @@ export class LineupGenerator {
             ).map(b => b.id),
             players
         );
-
-        console.log('\nFinal Team Composition:', finalTeam.map(p => ({
-            id: p.id,
-            name: p.name,
-            isWicketKeeper: p.wicketKeeper,
-            bowlingStyle: p.bowlingStyle,
-            rating: p.playerRatings[p.playerRatings.length - 1]
-        })));
-
-        console.log('\nBatting Order:', battingOrder.map((id, index) => ({
-            position: index + 1,
-            playerId: id,
-            player: finalTeam.find(p => p.id === id)?.name,
-            bowlingStyle: finalTeam.find(p => p.id === id)?.bowlingStyle
-        })));
-
-        console.log('\nBowling Order:', bowlingOrder.map((id, index) => ({
-            over: index + 1,
-            playerId: id,
-            player: finalTeam.find(p => p.id === id)?.name,
-            bowlingStyle: finalTeam.find(p => p.id === id)?.bowlingStyle
-        })));
 
         return new TeamLineup(wicketKeeper.id, battingOrder, bowlingOrder, wicketKeeper.id);
     }

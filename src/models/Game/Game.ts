@@ -1,5 +1,4 @@
 import { Player } from '../Player/Player';
-import { Scorecard } from '../Scorecard/Scorecard';
 import { BattingScorecard } from '../Scorecard/BattingScorecard';
 import { BowlingScorecard } from '../Scorecard/BowlingScorecard';
 import { Dismissal } from '../Player/Dismissal';
@@ -14,7 +13,7 @@ import { PitchType } from '../Stadium/PitchType';
 import { BoundarySize } from '../Stadium/BoundarySize';
 import { Stadium } from '../Stadium/Stadium';
 
-interface TeamGameData {
+export interface TeamGameData {
     stadium: number;
     battingLineup: number[];
     bowlingOrder: number[];
@@ -25,20 +24,21 @@ interface TeamGameData {
 
 interface PlayerGameStats {
     playerID: number;
+    innings: number;
     // Batting stats
     ballsFaced: number;
     runsScored: number;
     foursScored: number;
     sixesScored: number;
     // Bowling stats
-    ballsBowled: number;
-    runsConceded: number;
-    wickets: number;
-    maidens: number;
-    noBalls: number;
-    wides: number;
-    byes: number;
-    dotBalls: number;
+    balls: 0;
+    runs: 0;
+    wickets: 0;
+    maidens: 0;
+    noBalls: 0;
+    wides: 0;
+    byes: 0;
+    dotBalls: 0;
     // Fielding stats
     catches: number;
     runouts: number;
@@ -70,7 +70,8 @@ export class Game {
     private bowlingTeam: TeamGameData;
     private battingTeam: TeamGameData;
     private batters: number[] = [];
-    private batterUp: number = 0;
+    private strikerIndex: number = 0;
+    private nonStrikerIndex: number = 1;
     public winningTeamID: number = -1;
     private stadiums: Stadium[];
     private gameRatingAdjustments: Map<number, number> = new Map();
@@ -78,6 +79,10 @@ export class Game {
     private batterBallsFaced: Map<number, number> = new Map();
 
     // Add getters for private properties
+    public get currentOvers(): number {
+        return this.overs;
+    }
+
     public get currentBalls(): number {
         return this.balls;
     }
@@ -90,8 +95,20 @@ export class Game {
         return this.innings1Score;
     }
 
+    public get currentInnings(): number {
+        return this.innings;
+    }
+
+    public get currentInnings1Wickets(): number {
+        return this.innings1Wickets;
+    }
+
+    public get currentInnings1Balls(): number {
+        return this.innings1Balls;
+    }
+
     public get currentBatters(): number[] {
-        return [...this.batters];
+        return [this.batters[this.strikerIndex], this.batters[this.nonStrikerIndex]];
     }
 
     public get currentPlayLog(): string[] {
@@ -115,9 +132,10 @@ export class Game {
         if (this.isComplete) return;
 
         // Validate batting lineup access
-        if (this.batters[this.batterUp] === undefined) {
+        if (this.batters[this.strikerIndex] === undefined) {
             console.error('Invalid batter index:', {
-                batterUp: this.batterUp,
+                strikerIndex: this.strikerIndex,
+                nonStrikerIndex: this.nonStrikerIndex,
                 batters: this.batters,
                 battingLineup: this.battingTeam.battingLineup
             });
@@ -125,7 +143,7 @@ export class Game {
             return;
         }
 
-        const batterID = this.battingTeam.battingLineup[this.batters[this.batterUp]];
+        const batterID = this.battingTeam.battingLineup[this.batters[this.strikerIndex]];
         const bowlerID = this.bowlingTeam.bowlingOrder[this.overs];
         
         // Validate player IDs
@@ -133,7 +151,7 @@ export class Game {
             console.error('Invalid player IDs in simulateBall:', { 
                 batterID, 
                 bowlerID,
-                batterIndex: this.batters[this.batterUp],
+                strikerIndex: this.strikerIndex,
                 battingLineup: this.battingTeam.battingLineup,
                 bowlingOrder: this.bowlingTeam.bowlingOrder,
                 overs: this.overs
@@ -150,19 +168,20 @@ export class Game {
             this.winningTeamID = this.bowlingTeam === this.homeTeam ? this.homeTeam.stadium : this.awayTeam.stadium;
             return;
         }
-
-        this.runPlay(
+        
+        const wasLegalDelivery = this.runPlay(
             batter,
             bowler,
             1 + (this.homeTeam.homeAdvantage - 1) / 2
         );
 
-        this.balls++;
+        if (wasLegalDelivery) {
+            this.balls++;
+        }
+
+        // Check if we need to end the over
         if (this.balls > 5) {
-            this.overs++;
-            this.addToPlayLog(` End of over ${this.overs} ${this.score}/${this.wickets}`);
-            this.balls = 0;
-            this.batterUp = (this.batterUp + 1) % 2;
+            this.handleEndOfOver();
 
             // Check if innings is complete
             if (this.overs >= 20 || this.batters.length <= 1) {
@@ -179,7 +198,8 @@ export class Game {
                     
                     // Reset for second innings
                     this.batters = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
-                    this.batterUp = 0;
+                    this.strikerIndex = 0;
+                    this.nonStrikerIndex = 1;
                     this.score = 0;
                     this.wickets = 0;
                     this.innings = 2;
@@ -219,28 +239,24 @@ export class Game {
         this.initializeScorecard();
 
         // Determine who bats first
-        if (this.flipCoin()) {
-            this.addToPlayLog(homeTeam.teamName + " wins toss!");
-            this.bowlingTeam = homeTeam;
-            this.battingTeam = awayTeam;
-        } else {
-            this.addToPlayLog(awayTeam.teamName + " wins toss!");
-            this.battingTeam = homeTeam;
-            this.bowlingTeam = awayTeam;
-        }
+        const homeTeamWonToss = this.flipCoin();
+        const tossWinner = homeTeamWonToss ? homeTeam.teamName : awayTeam.teamName;
+        this.addToPlayLog(`${tossWinner} wins the toss!`);
 
         if (this.flipCoin()) {
-            this.addToPlayLog(this.bowlingTeam.teamName + " chooses to bowl first");
+            this.bowlingTeam = homeTeamWonToss ? homeTeam : awayTeam;
+            this.battingTeam = homeTeamWonToss ? awayTeam : homeTeam;
+            this.addToPlayLog(`${tossWinner} chooses to bowl first`);
         } else {
-            this.addToPlayLog(this.bowlingTeam.teamName + " chooses to bat first");
-            const tempVar = this.bowlingTeam;
-            this.bowlingTeam = this.battingTeam;
-            this.battingTeam = tempVar;
+            this.battingTeam = homeTeamWonToss ? homeTeam : awayTeam;
+            this.bowlingTeam = homeTeamWonToss ? awayTeam : homeTeam;
+            this.addToPlayLog(`${tossWinner} chooses to bat first`);
         }
 
         // Initialize batters array with indices 0-10
         this.batters = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
-        this.batterUp = 0;
+        this.strikerIndex = 0;
+        this.nonStrikerIndex = 1;
 
         // Initialize overs/balls tracking
         for (const player of players) {
@@ -260,61 +276,113 @@ export class Game {
     }
 
     private addToPlayLog(message: string): void {
-        // Remove HTML tags and format consistently
-        const cleanMessage = message
-            .replace(/<b>/g, '')
-            .replace(/<\/b>/g, '')
-            .replace(/\s+/g, ' ')
-            .trim();
-        this.playLog.push(cleanMessage);
+        // Format the ball number at the start of the message if it exists
+        const ballNumberRegex = /^(\d+)\.(\d+):/;
+        const match = message.match(ballNumberRegex);
+        if (match?.[0]) {
+            // Replace the ball number with the correct format
+            message = `${this.currentOvers}.${this.currentBalls}: ${message.substring(match[0].length).trim()}`;
+        }
+        this.playLog.push(message);
     }
 
-    private addToScorecard(playerId: number, runs: number = 0, isWide: boolean = false, isNoBall: boolean = false, isBye: boolean = false, isDot: boolean = false, isWicket: boolean = false, dismissalType?: Dismissal, bowlerId?: number) {
-        const stats = this.scorecard[playerId];
-        
-        if (bowlerId && this.bowlingTeam.players.includes(bowlerId)) {
-            // Bowling stats
-            const bowlerStats = this.scorecard[bowlerId];
-            if (!isWide && !isNoBall) {
-                bowlerStats.ballsBowled++;
+    private addToScorecard(
+        batterId: number,
+        runs: number,
+        isWide: boolean = false,
+        isNoBall: boolean = false,
+        isLegBye: boolean = false,
+        isDot: boolean = false,
+        isOut: boolean = false,
+        dismissalType?: Dismissal,
+        bowlerId?: number
+    ) {
+        // Create new stats object for second innings if needed
+        if (this.innings === 2) {
+            if (!this.scorecard[batterId] || this.scorecard[batterId].innings === 1) {
+                this.scorecard[batterId] = {
+                    ...this.scorecard[batterId],
+                    innings: 2,
+                    ballsFaced: 0,
+                    runsScored: 0,
+                    foursScored: 0,
+                    sixesScored: 0,
+                    balls: 0,
+                    runs: 0,
+                    wickets: 0,
+                    maidens: 0,
+                    noBalls: 0,
+                    wides: 0,
+                    byes: 0,
+                    dotBalls: 0,
+                    catches: 0,
+                    runouts: 0,
+                    stumpings: 0,
+                    missedCatches: 0,
+                    missedRunOuts: 0,
+                    missedStumpings: 0,
+                    dismissalType: undefined,
+                    bowlerId: undefined,
+                    fielderId: undefined
+                };
             }
-            if (isWide) {
-                bowlerStats.wides++;
-            }
-            if (isNoBall) {
-                bowlerStats.noBalls++;
-            }
-            if (isBye) {
-                bowlerStats.byes++;
-            }
-            if (isDot) {
-                bowlerStats.dotBalls++;
-            }
-            if (runs > 0) {
-                bowlerStats.runsConceded += runs;
-            }
-            if (isWicket) {
-                bowlerStats.wickets++;
+            if (bowlerId && (!this.scorecard[bowlerId] || this.scorecard[bowlerId].innings === 1)) {
+                this.scorecard[bowlerId] = {
+                    ...this.scorecard[bowlerId],
+                    innings: 2,
+                    ballsFaced: 0,
+                    runsScored: 0,
+                    foursScored: 0,
+                    sixesScored: 0,
+                    balls: 0,
+                    runs: 0,
+                    wickets: 0,
+                    maidens: 0,
+                    noBalls: 0,
+                    wides: 0,
+                    byes: 0,
+                    dotBalls: 0,
+                    catches: 0,
+                    runouts: 0,
+                    stumpings: 0,
+                    missedCatches: 0,
+                    missedRunOuts: 0,
+                    missedStumpings: 0,
+                    dismissalType: undefined,
+                    bowlerId: undefined,
+                    fielderId: undefined
+                };
             }
         }
 
-        if (this.battingTeam.players.includes(playerId)) {
-            // Batting stats
-            if (!isWide && !isNoBall) {
-                stats.ballsFaced++;
+        const batterStats = this.scorecard[batterId];
+        const bowlerStats = bowlerId ? this.scorecard[bowlerId] : undefined;
+
+        // Update batter stats
+        if (!isWide) {
+            batterStats.ballsFaced++;
+            if (!isLegBye) {
+                batterStats.runsScored += runs;
+                if (runs === 4) batterStats.foursScored++;
+                if (runs === 6) batterStats.sixesScored++;
             }
-            if (!isBye) {
-                stats.runsScored += runs;
-                if (runs === 4) {
-                    stats.foursScored++;
-                } else if (runs === 6) {
-                    stats.sixesScored++;
-                }
-            }
-            if (dismissalType) {
-                stats.dismissalType = dismissalType;
-                stats.bowlerId = bowlerId;
-            }
+        }
+
+        // Update bowler stats
+        if (bowlerStats) {
+            if (!isWide && !isNoBall) bowlerStats.balls++;
+            if (isWide) bowlerStats.wides++;
+            if (isNoBall) bowlerStats.noBalls++;
+            if (isLegBye) bowlerStats.byes++;
+            if (isDot) bowlerStats.dotBalls++;
+            bowlerStats.runs += runs;
+            if (isOut) bowlerStats.wickets++;
+        }
+
+        // Update dismissal info
+        if (isOut) {
+            batterStats.dismissalType = dismissalType;
+            batterStats.bowlerId = bowlerId;
         }
     }
 
@@ -363,13 +431,6 @@ export class Game {
         return Math.max(0.7, 1 - (baseFatigue * (1 - fitnessModifier)));
     }
 
-    private getRandomFielder(excludeIds: number[]): Player {
-        const availableFielders = this.bowlingTeam.battingLineup
-            .map(id => this.getPlayer(id))
-            .filter(p => !excludeIds.includes(p.id));
-        return availableFielders[Math.floor(Math.random() * availableFielders.length)];
-    }
-
     private getTeamFieldingRating(team: TeamGameData): number {
         // Get average fielding rating of all fielders, adjusted for fatigue and consistency
         const fieldingRatings = team.battingLineup.map(id => {
@@ -383,75 +444,182 @@ export class Game {
         return fieldingRatings.reduce((sum, rating) => sum + rating, 0) / fieldingRatings.length;
     }
 
-    private simulateFieldingEvent(batter: Player, bowler: Player, type: 'catch' | 'runout' | 'stumping' | 'misfield'): {
-        success: boolean;
-        fielder: Player | null;
-        runs: number;
-    } {
-        let fielder: Player | null = null;
-        let success = false;
-        let runs = 0;
-
-        // Get fielder (excluding bowler and wicketkeeper for catches)
-        const wicketKeeper = this.getPlayer(this.bowlingTeam.battingLineup[0]); // Assuming wicketkeeper bats first
-        const excludeIds = type === 'catch' ? [bowler.id, wicketKeeper.id] : [];
-        fielder = type === 'stumping' ? wicketKeeper : this.getRandomFielder(excludeIds);
-
-        // Get adjusted fielding rating based on consistency and fatigue
-        const adjustedFielding = this.getAdjustedRating(fielder.id, fielder.playerRatings[fielder.playerRatings.length - 1].fielding);
-        const fatigueFactor = this.getFatigueFactor(fielder, fielder.playerRatings[fielder.playerRatings.length - 1].fitness);
-        const finalFieldingRating = adjustedFielding * fatigueFactor;
-
-        // Base chances for each type of dismissal/event
-        const baseChance = {
-            'catch': 0.85,
-            'runout': 0.70,
-            'stumping': 0.80,
-            'misfield': 0.90 // 90% chance to field cleanly
-        }[type];
-
-        // Modify chance based on fielding rating
-        const fieldingModifier = Math.pow(finalFieldingRating / 100, 0.5);
-        const finalChance = baseChance * fieldingModifier;
-
-        // Determine outcome
-        success = Math.random() < finalChance;
-
-        // For failed runouts, determine overthrows
-        if (!success && type === 'runout') {
-            const overthrowChance = 0.2 * (1 - fieldingModifier);
-            if (Math.random() < overthrowChance) {
-                runs = Math.floor(Math.random() * 4) + 1; // 1-4 overthrow runs
-            }
+    // Add helper method to select fielder based on event type
+    private selectFielder(eventType: 'catch' | 'runout' | 'stumping' | 'misfield'): { fielder?: Player, position?: string } {
+        if (eventType === 'stumping') {
+            // For stumpings, only select the wicketkeeper
+            const keeper = this.players.find(p => 
+                this.bowlingTeam.battingLineup.includes(p.id) && 
+                p.wicketKeeper
+            );
+            return { fielder: keeper, position: 'behind the stumps' };
         }
 
-        // Update fielder's stats
-        if (fielder) {
-            const fielderStats = this.scorecard[fielder.id];
-            if (success) {
-                if (type === 'catch') fielderStats.catches++;
-                if (type === 'runout') fielderStats.runouts++;
-                if (type === 'stumping') fielderStats.stumpings++;
-            } else {
-                if (type === 'catch') fielderStats.missedCatches++;
-                if (type === 'runout') fielderStats.missedRunOuts++;
-                if (type === 'stumping') fielderStats.missedStumpings++;
-            }
+        // Get all players from bowling team except current bowler
+        const availableFielders = this.players.filter(p => 
+            this.bowlingTeam.battingLineup.includes(p.id) && 
+            p.id !== this.bowlingTeam.bowlingOrder[this.overs]
+        );
+
+        if (!availableFielders.length) return { fielder: undefined };
+
+        // For catches, assign specific fielding positions with different probabilities
+        if (eventType === 'catch') {
+            const positions = [
+                { name: 'slip', probability: 0.2 },
+                { name: 'gully', probability: 0.1 },
+                { name: 'point', probability: 0.1 },
+                { name: 'cover', probability: 0.1 },
+                { name: 'mid-off', probability: 0.05 },
+                { name: 'mid-on', probability: 0.05 },
+                { name: 'midwicket', probability: 0.1 },
+                { name: 'square leg', probability: 0.1 },
+                { name: 'fine leg', probability: 0.05 },
+                { name: 'long-off', probability: 0.05 },
+                { name: 'long-on', probability: 0.05 },
+                { name: 'deep midwicket', probability: 0.05 }
+            ];
+
+            // Select a random position based on probabilities
+            const roll = Math.random();
+            let cumulativeProbability = 0;
+            const selectedPosition = positions.find(pos => {
+                cumulativeProbability += pos.probability;
+                return roll <= cumulativeProbability;
+            });
+
+            // Get current fielding ratings
+            const fieldingRatings = availableFielders.map(p => 
+                this.getAdjustedRating(p.id, p.playerRatings[p.playerRatings.length - 1].fielding)
+            );
+
+            // Sort fielders by their fielding rating while keeping original indices
+            const sortedIndices = fieldingRatings
+                .map((rating, index) => ({ rating, index }))
+                .sort((a, b) => b.rating - a.rating)
+                .map(item => item.index);
+
+            // Select one of the top 3 fielders for the position
+            const selectedFielderIndex = sortedIndices[Math.floor(Math.random() * Math.min(3, sortedIndices.length))];
+            return { 
+                fielder: availableFielders[selectedFielderIndex], 
+                position: selectedPosition?.name 
+            };
         }
 
-        return { success, fielder, runs };
+        // For run outs and misfields, use the existing logic
+        const fieldingRatings = availableFielders.map(p => 
+            this.getAdjustedRating(p.id, p.playerRatings[p.playerRatings.length - 1].fielding)
+        );
+
+        // Sort fielders by their fielding rating while keeping original indices
+        const sortedIndices = fieldingRatings
+            .map((rating, index) => ({ rating, index }))
+            .sort((a, b) => b.rating - a.rating)
+            .map(item => item.index);
+
+        const sortedFielders = sortedIndices.map(i => availableFielders[i]);
+        const sortedRatings = sortedIndices.map(i => fieldingRatings[i]);
+
+        // Different weights based on event type
+        let weights: number[];
+        switch (eventType) {
+            case 'runout':
+                // Better fielders slightly more likely for run outs
+                weights = sortedRatings.map(rating => Math.pow(rating / 50, 1.2));
+                break;
+            case 'misfield':
+                // Worse fielders more likely for misfields
+                weights = sortedRatings.map(rating => Math.pow((100 - rating) / 50, 1.3));
+                break;
+            default:
+                weights = sortedRatings.map(rating => rating / 50);
+        }
+
+        // Convert to cumulative probabilities
+        for (let i = 1; i < weights.length; i++) {
+            weights[i] += weights[i - 1];
+        }
+
+        // Normalize weights
+        const totalWeight = weights[weights.length - 1];
+        weights = weights.map(w => w / totalWeight);
+
+        // Select fielder
+        const roll = Math.random();
+        const selectedIndex = weights.findIndex(w => w > roll);
+        return { 
+            fielder: sortedFielders[selectedIndex === -1 ? sortedFielders.length - 1 : selectedIndex]
+        };
     }
 
-    private runPlay(batter: Player, bowler: Player, homeAdvantage: number): void {
-        const balls = `${this.overs}.${this.balls+1}:`;
+    // Update simulateFieldingEvent to handle the new return type from selectFielder
+    private simulateFieldingEvent(batter: Player, bowler: Player, eventType: 'catch' | 'runout' | 'stumping' | 'misfield'): { success: boolean, fielder?: Player, runs?: number, position?: string } {
+        const { fielder, position } = this.selectFielder(eventType);
+        if (!fielder) return { success: false };
+
+        // Get adjusted fielding rating
+        const fielderRating = this.getAdjustedRating(fielder.id, fielder.playerRatings[fielder.playerRatings.length - 1].fielding);
+        let baseSuccessRate: number;
+        
+        switch (eventType) {
+            case 'catch':
+                baseSuccessRate = 0.85;
+                break;
+            case 'runout':
+                baseSuccessRate = 0.4;
+                break;
+            case 'stumping':
+                baseSuccessRate = fielder.wicketKeeper ? 0.7 : 0; // Only wicketkeepers can stump
+                break;
+            case 'misfield':
+                baseSuccessRate = 0.92;
+                break;
+            default:
+                return { success: false };
+        }
+
+        // Adjust success rate based on fielder rating - stronger influence for misfields
+        const adjustedSuccessRate = eventType === 'misfield' ?
+            baseSuccessRate * Math.pow(fielderRating / 50, 0.3) :
+            baseSuccessRate * Math.pow(fielderRating / 50, 0.7);
+        
+        const success = Math.random() < adjustedSuccessRate;
+
+        // For misfields and failed run outs, calculate extra runs
+        let runs = 0;
+        if (!success && (eventType === 'misfield' || eventType === 'runout')) {
+            runs = Math.floor(Math.random() * 3) + 1;
+        }
+
+        // Update fielder's stats if they exist in the scorecard
+        if (fielder && this.scorecard[fielder.id]) {
+            const fielderStats = this.scorecard[fielder.id];
+            if (success) {
+                if (eventType === 'catch') fielderStats.catches++;
+                if (eventType === 'runout') fielderStats.runouts++;
+                if (eventType === 'stumping') fielderStats.stumpings++;
+            } else {
+                if (eventType === 'catch') fielderStats.missedCatches++;
+                if (eventType === 'runout') fielderStats.missedRunOuts++;
+                if (eventType === 'stumping') fielderStats.missedStumpings++;
+            }
+        }
+
+        return { success, fielder, runs, position };
+    }
+
+    private runPlay(batter: Player, bowler: Player, homeAdvantage: number): boolean {
+        const balls = `${this.overs}.${this.balls + 1}`;
         const playIntro = `(${bowler.name} to ${batter.name})`;
 
         // Get team fielding rating and calculate fielding factor
         const fieldingRating = this.getTeamFieldingRating(this.bowlingTeam);
-        const fieldingFactor = Math.pow(fieldingRating / 50, 0.5); // 1 is average, >1 is good fielding, <1 is poor fielding
+        const fieldingFactor = Math.pow(fieldingRating / 50, 0.5);
 
         // Base play probabilities
-        const playTypeOdds = [0.03182, 0.016400675, 0.003987089, 0.604390266, 0.039336044, 0.29569238];
+        
+        const playTypeOdds = [0.03182, 0.016400675, 0.003987089, 0.604390266, 0.039336044, 0.38569238];
         const overFactor = (((this.overs + 1 / 20) / 20) + 3) / 3;
         const ppFactor = this.overs < 6 ? 1.3 : 0.9;
         
@@ -492,7 +660,9 @@ export class Game {
         switch (stadium.pitchType) {
             case PitchType.GREEN:
                 pitchFactor = bowler.bowlingStyle === BowlingStyle.FAST || 
-                             bowler.bowlingStyle === BowlingStyle.FAST_MEDIUM ? 1.2 : 0.9;
+                             bowler.bowlingStyle === BowlingStyle.FAST_MEDIUM ||
+                             bowler.bowlingStyle === BowlingStyle.SWING ||
+                             bowler.bowlingStyle === BowlingStyle.SEAM ? 1.2 : 0.9;
                 break;
             case PitchType.DUSTY:
                 pitchFactor = bowler.bowlingStyle === BowlingStyle.OFF_SPIN || 
@@ -522,28 +692,43 @@ export class Game {
                 battingStyleFactor = this.overs < 6 ? 1.2 : 1.1;
                 playTypeOdds[3] *= 0.9; // Less likely to take singles
                 playTypeOdds[4] *= 1.2; // More likely to get out
+                playTypeOdds[5] *= 1.2; // More dot balls
                 break;
             case BattingStyle.DEFENSIVE:
                 battingStyleFactor = 0.8;
                 playTypeOdds[3] *= 1.2; // More likely to take singles
-                playTypeOdds[4] *= 0.8; // Less likely to get out
+                playTypeOdds[4] *= 0.6; // Less likely to get out
+                playTypeOdds[5] *= 1.3; // More dot balls
                 break;
             case BattingStyle.POWER_HITTER:
                 battingStyleFactor = 1.3;
-                playTypeOdds[3] *= 0.8; // Less likely to take singles
+                playTypeOdds[3] *= 0.6; // Less likely to take singles
+                playTypeOdds[4] *= 1.4; // More likely to get out
+                playTypeOdds[5] *= 1.5; // More dot balls
                 break;
             case BattingStyle.TECHNICAL:
-                playTypeOdds[4] *= 0.7; // Much less likely to get out
+                playTypeOdds[0] *= 1.5 // More likely to get wide
+                playTypeOdds[4] *= 0.95; // Much less likely to get out
+                playTypeOdds[5] *= 0.8 // Less likely to get dot balls
+                playTypeOdds[3] *= 1.4; // More likely to take singles
                 break;
             case BattingStyle.ANCHOR:
                 battingStyleFactor = 0.9;
-                playTypeOdds[4] *= 0.6; // Very unlikely to get out
+                playTypeOdds[4] *= 0.8; // Very unlikely to get out
+                playTypeOdds[5] *= 1.2; // More dot balls
+                playTypeOdds[3] *= 1.2; // More likely to take singles
                 break;
             case BattingStyle.FINISHER:
-                battingStyleFactor = this.overs > 15 ? 1.3 : 1.0;
+                battingStyleFactor = this.overs > 15 ? 1.5 : 1;
+                playTypeOdds[4] *= 1.3; // More likely to get out due to aggressive play
+                playTypeOdds[5] *= 0.7; // Less dot balls as they look to score
+                playTypeOdds[3] *= 0.8; // Less likely to take singles
+                if (this.overs > 15) {
+                    playTypeOdds[3] *= 0.6; // Even less singles in death overs
+                }
                 break;
             case BattingStyle.STRIKE_ROTATOR:
-                playTypeOdds[3] *= 1.3; // Much more likely to take singles
+                playTypeOdds[3] *= 1.2; // Much more likely to take singles
                 break;
         }
 
@@ -629,6 +814,27 @@ export class Game {
         let playResult = playTypeOdds.findIndex(p => p > playDeterminer);
         if (playResult === -1) playResult = playTypeOdds.length - 1;
 
+        // Helper function to handle wicket
+        const handleWicket = (dismissalType: Dismissal, bowlerId: number, batter: Player) => {
+            this.wickets++;
+            // Get the next batter's index
+            const nextBatterIndex = this.wickets + 1;
+            
+            // Check if we have enough batters left
+            if (nextBatterIndex >= 11) {
+                // All out - remove the current batter
+                this.batters = [this.batters[this.nonStrikerIndex]];
+                this.strikerIndex = 0;
+                this.nonStrikerIndex = -1; // No non-striker when all out
+            } else {
+                // Keep non-striker in place and add new batter as striker
+                this.batters[this.strikerIndex] = nextBatterIndex;
+            }
+            
+            // Update scorecard
+            this.addToScorecard(batter.id, 0, false, false, false, false, true, dismissalType, bowlerId);
+        };
+
         // Handle different play outcomes
         switch (playResult) {
             case 0: // Wide
@@ -636,30 +842,28 @@ export class Game {
                 const wideResult = wideOdds.findIndex(p => p > Math.random());
                 // Chance for misfield on wide
                 const { success: wideFielded, runs: extraWides } = this.simulateFieldingEvent(batter, bowler, 'misfield');
-                const totalWides = wideResult + 1 + (wideFielded ? 0 : extraWides);
+                const totalWides = wideResult + 1 + (wideFielded ? 0 : (extraWides || 0));
                 this.score += totalWides;
                 this.addToPlayLog(`${balls} ${playIntro} ${totalWides} wide runs${!wideFielded ? ' (misfield)' : ''}`);
                 this.addToScorecard(batter.id, totalWides, true, false, false, false, false, undefined, bowler.id);
-                this.balls--;
-                break;
+                return false;
 
             case 1: // Leg Bye
                 const legByeOdds = [0.870957, 0.917944, 0.923732, 0.998638367, 1];
                 const legByeResult = legByeOdds.findIndex(p => p > Math.random());
                 // Chance for misfield on leg bye
                 const { success: legByeFielded, runs: extraLegByes } = this.simulateFieldingEvent(batter, bowler, 'misfield');
-                const totalLegByes = legByeResult + 1 + (legByeFielded ? 0 : extraLegByes);
+                const totalLegByes = legByeResult + 1 + (legByeFielded ? 0 : (extraLegByes || 0));
                 this.score += totalLegByes;
                 this.addToPlayLog(`${balls} ${playIntro} ${totalLegByes} leg bye runs${!legByeFielded ? ' (misfield)' : ''}`);
                 this.addToScorecard(batter.id, totalLegByes, false, false, true, false, false, undefined, bowler.id);
-                break;
+                return true;
 
             case 2: // No Ball
                 this.score += 1;
                 this.addToPlayLog(`${balls} ${playIntro} NO BALL`);
                 this.addToScorecard(batter.id, 1, false, true, false, false, false, undefined, bowler.id);
-                this.balls--;
-                break;
+                return false;
 
             case 3: // Batting Runs
                 // Calculate boundary odds with fielding factor
@@ -675,54 +879,73 @@ export class Game {
                     // Running runs with fielding influence
                     const runningRunsOdds = [0.84764, 0.144, 0.007369, 0, 0.000991].map(
                         p => p * (50 / ((adjustedBatterFitness * batterFatigueFactor + ratingBoost) + 1)) *
-                            (1 - (fieldingFactor - 1) * 0.15) // Reduce running chances with good fielding
+                            (1 - (fieldingFactor - 1) * 0.15)
                     );
                     for (let i = 1; i < runningRunsOdds.length; i++) {
                         runningRunsOdds[i] += runningRunsOdds[i - 1];
                     }
                     const runningRunsResult = runningRunsOdds.findIndex(p => p > Math.random());
+                    if (runningRunsResult === -1) return false;
                     
-                    // Higher run out chance with better fielding
-                    const runOutChance = 0.05 * (runningRunsResult + 1) * fieldingFactor;
+                    const runOutChance = 0.02 * (runningRunsResult + 1) * (fieldingFactor || 1);
                     
                     if (Math.random() < runOutChance) {
-                        const { success, fielder, runs: overthrows } = this.simulateFieldingEvent(batter, bowler, 'runout');
-                        if (success) {
-                            this.wickets++;
-                            this.addToPlayLog(`${balls} ${playIntro} RUN OUT by ${fielder?.name}!`);
-                            this.addToScorecard(batter.id, 0, false, false, false, false, true, Dismissal.RUN_OUT, bowler.id);
+                        const fieldingResult = this.simulateFieldingEvent(batter, bowler, 'runout');
+                        const { success, fielder, runs: overthrows } = fieldingResult || { success: false, fielder: null, runs: 0 };
+                        
+                        if (success && fielder?.name) {
+                            this.addToPlayLog(`${balls} ${playIntro} RUN OUT by ${fielder.name}!`);
+                            handleWicket(Dismissal.RUN_OUT, bowler.id, batter);
                         } else {
-                            const totalRuns = runningRunsResult + 1 + overthrows;
+                            const totalRuns = (runningRunsResult + 1) + (overthrows || 0);
                             this.score += totalRuns;
-                            this.addToPlayLog(`${balls} ${playIntro} ${totalRuns} runs (including ${overthrows} overthrows)`);
+                            this.addToPlayLog(`${balls} ${playIntro} ${totalRuns} runs${overthrows ? ' (including overthrows)' : ''}`);
                             this.addToScorecard(batter.id, totalRuns, false, false, false, false, false, undefined, bowler.id);
                         }
                     } else {
-                        // Check for misfield on successful runs
-                        const { success: cleanField, runs: extraRuns } = this.simulateFieldingEvent(batter, bowler, 'misfield');
-                        const totalRuns = runningRunsResult + 1 + (cleanField ? 0 : extraRuns);
+                        const totalRuns = runningRunsResult + 1;
                         this.score += totalRuns;
-                        this.addToPlayLog(`${balls} ${playIntro} ${totalRuns} runs${!cleanField ? ' (misfield)' : ''}`);
+                        this.addToPlayLog(`${balls} ${playIntro} ${totalRuns} runs`);
                         this.addToScorecard(batter.id, totalRuns, false, false, false, false, false, undefined, bowler.id);
                     }
                 } else {
-                    // Boundary attempt with fielding influence
-                    const { success: boundaryFielded } = this.simulateFieldingEvent(batter, bowler, 'misfield');
-                    if (boundaryFielded && Math.random() < fieldingFactor * 0.3) {
-                        // Great fielding saves boundary
-                        const savedRuns = Math.floor(Math.random() * 3) + 1;
-                        this.score += savedRuns;
-                        this.addToPlayLog(`${balls} ${playIntro} ${savedRuns} runs (boundary saved)`);
-                        this.addToScorecard(batter.id, savedRuns, false, false, false, false, false, undefined, bowler.id);
+                    // Boundary attempt with reduced misfield influence
+                    const shouldCheckMisfield = Math.random() < 0.1;
+                    if (shouldCheckMisfield) {
+                        const { success: boundaryFielded } = this.simulateFieldingEvent(batter, bowler, 'misfield');
+                        if (boundaryFielded && Math.random() < fieldingFactor * 0.3) {
+                            // Great fielding saves boundary
+                            const savedRuns = Math.floor(Math.random() * 3) + 1;
+                            this.score += savedRuns;
+                            this.addToPlayLog(`${balls} ${playIntro} ${savedRuns} runs (boundary saved)`);
+                            this.addToScorecard(batter.id, savedRuns, false, false, false, false, false, undefined, bowler.id);
+                        } else {
+                            // Normal boundary code
+                            const battingRuns6Odds = Math.pow((1 / homeTeamAdvantage), 0.5) * 0.286044 * 
+                                Math.pow((((fatigueAdjustedBatterPower + ratingBoost) / 50) + 
+                                (50 / (fatigueAdjustedBowlerEconomy + ratingBoost))) / 2, 0.5) * 
+                                boundarySizeFactor * battingStyleFactor * Math.pow(batterFatigueFactor, 0.5) *
+                                (1 - ((fieldingFactor || 1) - 1) * 0.1);
+                            
+                            if (battingRuns6Odds !== undefined && Math.random() > battingRuns6Odds) {
+                                this.score += 4;
+                                this.addToScorecard(batter.id, 4, false, false, false, false, false, undefined, bowler.id);
+                                this.addToPlayLog(`${balls} ${playIntro} FOUR!`);
+                            } else {
+                                this.score += 6;
+                                this.addToPlayLog(`${balls} ${playIntro} SIX!`);
+                                this.addToScorecard(batter.id, 6, false, false, false, false, false, undefined, bowler.id);
+                            }
+                        }
                     } else {
-                        // Normal boundary code
+                        // Normal boundary code without misfield check
                         const battingRuns6Odds = Math.pow((1 / homeTeamAdvantage), 0.5) * 0.286044 * 
                             Math.pow((((fatigueAdjustedBatterPower + ratingBoost) / 50) + 
                             (50 / (fatigueAdjustedBowlerEconomy + ratingBoost))) / 2, 0.5) * 
                             boundarySizeFactor * battingStyleFactor * Math.pow(batterFatigueFactor, 0.5) *
-                            (1 - (fieldingFactor - 1) * 0.1); // Slightly reduce six probability with good fielding
+                            (1 - ((fieldingFactor || 1) - 1) * 0.1);
                         
-                        if (Math.random() > battingRuns6Odds) {
+                        if (battingRuns6Odds !== undefined && Math.random() > battingRuns6Odds) {
                             this.score += 4;
                             this.addToScorecard(batter.id, 4, false, false, false, false, false, undefined, bowler.id);
                             this.addToPlayLog(`${balls} ${playIntro} FOUR!`);
@@ -733,7 +956,7 @@ export class Game {
                         }
                     }
                 }
-                break;
+                return true;
 
             case 4: // Wicket
                 // Determine dismissal type
@@ -758,20 +981,19 @@ export class Game {
                 // Handle different dismissal types
                 switch (dismissalType) {
                     case Dismissal.CAUGHT: {
-                        const { success, fielder } = this.simulateFieldingEvent(batter, bowler, 'catch');
-                        if (success) {
-                            this.wickets++;
-                            this.addToPlayLog(`${balls} ${playIntro} CAUGHT by ${fielder?.name}!`);
-                            this.addToScorecard(batter.id, 0, false, false, false, false, true, Dismissal.CAUGHT, bowler.id);
+                        const { success, fielder, position } = this.simulateFieldingEvent(batter, bowler, 'catch');
+                        if (success && fielder) {
+                            this.addToPlayLog(`${balls} ${playIntro} CAUGHT by ${fielder.name} at ${position}!`);
+                            handleWicket(Dismissal.CAUGHT, bowler.id, batter);
                         } else {
                             // Dropped catch - chance for runs
                             const dropRuns = Math.random() < 0.3 ? Math.floor(Math.random() * 3) + 1 : 0;
                             if (dropRuns > 0) {
                                 this.score += dropRuns;
-                                this.addToPlayLog(`${balls} ${playIntro} DROPPED by ${fielder?.name}! ${dropRuns} runs`);
+                                this.addToPlayLog(`${balls} ${playIntro} DROPPED${fielder ? ` by ${fielder.name}` : ''}${position ? ` at ${position}` : ''}! ${dropRuns} runs`);
                                 this.addToScorecard(batter.id, dropRuns, false, false, false, false, false, undefined, bowler.id);
                             } else {
-                                this.addToPlayLog(`${balls} ${playIntro} DROPPED by ${fielder?.name}!`);
+                                this.addToPlayLog(`${balls} ${playIntro} DROPPED${fielder ? ` by ${fielder.name}` : ''}${position ? ` at ${position}` : ''}!`);
                                 this.addToScorecard(batter.id, 0, false, false, false, false, false, undefined, bowler.id);
                             }
                         }
@@ -779,48 +1001,48 @@ export class Game {
                     }
                     case Dismissal.STUMPED: {
                         const { success, fielder } = this.simulateFieldingEvent(batter, bowler, 'stumping');
-                        if (success) {
-                            this.wickets++;
-                            this.addToPlayLog(`${balls} ${playIntro} STUMPED by ${fielder?.name}!`);
-                            this.addToScorecard(batter.id, 0, false, false, false, false, true, Dismissal.STUMPED, bowler.id);
+                        if (success && fielder) {
+                            this.addToPlayLog(`${balls} ${playIntro} STUMPED by ${fielder.name}!`);
+                            handleWicket(Dismissal.STUMPED, bowler.id, batter);
                         } else {
                             // Failed stumping - chance for byes
                             const byeRuns = Math.random() < 0.4 ? Math.floor(Math.random() * 2) + 1 : 0;
                             if (byeRuns > 0) {
                                 this.score += byeRuns;
-                                this.addToPlayLog(`${balls} ${playIntro} Missed stumping! ${byeRuns} byes`);
+                                this.addToPlayLog(`${balls} ${playIntro} Missed stumping${fielder ? ` by ${fielder.name}` : ''}! ${byeRuns} byes`);
                                 this.addToScorecard(batter.id, byeRuns, false, false, false, false, false, undefined, bowler.id);
                             } else {
-                                this.addToPlayLog(`${balls} ${playIntro} Missed stumping!`);
+                                this.addToPlayLog(`${balls} ${playIntro} Missed stumping${fielder ? ` by ${fielder.name}` : ''}!`);
                                 this.addToScorecard(batter.id, 0, false, false, false, false, false, undefined, bowler.id);
                             }
                         }
                         break;
                     }
                     default:
-                        this.wickets++;
                         this.addToPlayLog(`${balls} ${playIntro} ${dismissalType}!`);
-                        this.addToScorecard(batter.id, 0, false, false, false, false, true, dismissalType, bowler.id);
+                        handleWicket(dismissalType, bowler.id, batter);
                         break;
                 }
-                break;
+                return true;
 
             case 5: // Dot Ball
                 this.addToPlayLog(`${balls} ${playIntro} dot ball`);
                 this.addToScorecard(batter.id, 0, false, false, false, true, false, undefined, bowler.id);
-                break;
+                return true;
         }
+        return true;
     }
 
     public runGame(): void {
         // First innings
         this.batters = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
-        this.batterUp = 0;
+        this.strikerIndex = 0;
+        this.nonStrikerIndex = 1;
         this.score = 0;
         this.wickets = 0;
 
         while (this.overs < 20 && this.batters.length > 1) {
-            const batterID = this.battingTeam.battingLineup[this.batters[this.batterUp]];
+            const batterID = this.battingTeam.battingLineup[this.batters[this.strikerIndex]];
             const bowlerID = this.bowlingTeam.bowlingOrder[this.overs];
             this.runPlay(
                 this.getPlayer(batterID),
@@ -830,10 +1052,7 @@ export class Game {
 
             this.balls++;
             if (this.balls > 5) {
-                this.overs++;
-                this.addToPlayLog(` End of over ${this.overs} ${this.score}/${this.wickets}`);
-                this.balls = 0;
-                this.batterUp = (this.batterUp + 1) % 2;
+                this.handleEndOfOver();
             }
         }
 
@@ -849,7 +1068,8 @@ export class Game {
 
         // Reset for second innings
         this.batters = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
-        this.batterUp = 0;
+        this.strikerIndex = 0;
+        this.nonStrikerIndex = 1;
         this.score = 0;
         this.wickets = 0;
         this.innings = 2;
@@ -858,7 +1078,7 @@ export class Game {
 
         // Second innings
         while (this.overs < 20 && this.batters.length > 1 && this.innings1Score >= this.score) {
-            const batterID = this.battingTeam.battingLineup[this.batters[this.batterUp]];
+            const batterID = this.battingTeam.battingLineup[this.batters[this.strikerIndex]];
             const bowlerID = this.bowlingTeam.bowlingOrder[this.overs];
             this.runPlay(
                 this.getPlayer(batterID),
@@ -868,10 +1088,7 @@ export class Game {
 
             this.balls++;
             if (this.balls > 5) {
-                this.overs++;
-                this.addToPlayLog(` End of over ${this.overs} ${this.score}/${this.wickets}`);
-                this.balls = 0;
-                this.batterUp = (this.batterUp + 1) % 2;
+                this.handleEndOfOver();
             }
         }
 
@@ -892,12 +1109,17 @@ export class Game {
             const stats = this.scorecard[playerId];
             const player = this.getPlayer(stats.playerID);
 
+            // Determine which team the player belongs to by checking batting lineup
+            const isHomeTeamPlayer = this.homeTeam.battingLineup.includes(player.id);
+            const currentTeamId = isHomeTeamPlayer ? this.homeTeam.stadium : this.awayTeam.stadium;
+            const opposingTeamId = isHomeTeamPlayer ? this.awayTeam.stadium : this.homeTeam.stadium;
+
             // Add game stats to player history
             player.playerStats.push(new PlayerStats(
                 this.innings1Score,  // Using innings1Score as gameId for now
                 0,  // season_id
-                player.id === this.homeTeam.stadium ? this.homeTeam.stadium : this.awayTeam.stadium,
-                player.id === this.homeTeam.stadium ? this.awayTeam.stadium : this.homeTeam.stadium,
+                currentTeamId,  // Current team ID (using stadium ID)
+                opposingTeamId,  // Opposing team ID (using stadium ID)
                 new BattingStats(
                     stats.runsScored,
                     stats.ballsFaced,
@@ -905,8 +1127,8 @@ export class Game {
                     stats.sixesScored
                 ),
                 new BowlingStats(
-                    stats.runsConceded,
-                    stats.ballsBowled,
+                    stats.runs,
+                    stats.balls,
                     stats.maidens,
                     stats.wickets,
                     stats.noBalls,
@@ -926,88 +1148,99 @@ export class Game {
         }
     }
 
-    public getScorecard(): Scorecard {
-        const homeTeamBatting: BattingScorecard[] = [];
-        const homeTeamBowling: BowlingScorecard[] = [];
-        const awayTeamBatting: BattingScorecard[] = [];
-        const awayTeamBowling: BowlingScorecard[] = [];
+    public getScorecard(): { 
+        firstInningsBatting: BattingScorecard[],
+        firstInningsBowling: BowlingScorecard[],
+        secondInningsBatting: BattingScorecard[],
+        secondInningsBowling: BowlingScorecard[]
+    } {
+        const firstInningsBatting: BattingScorecard[] = [];
+        const firstInningsBowling: BowlingScorecard[] = [];
+        const secondInningsBatting: BattingScorecard[] = [];
+        const secondInningsBowling: BowlingScorecard[] = [];
 
-        // Process home team stats
-        this.homeTeam.battingLineup.forEach(playerId => {
-            const stats = this.scorecard[playerId];
+        // Determine which team batted first based on the current state
+        const firstBattingTeam = this.innings === 1 ? this.battingTeam : this.bowlingTeam;
+        const secondBattingTeam = this.innings === 1 ? this.bowlingTeam : this.battingTeam;
+
+        // Process first innings batting
+        firstBattingTeam.battingLineup.forEach(playerId => {
+            const stats = Object.values(this.scorecard)
+                .find(s => s.playerID === playerId && s.innings === 1);
             if (stats) {
-                const battingCard = new BattingScorecard(
-                    stats.playerID,
-                    stats.runsScored,
+                firstInningsBatting.push(new BattingScorecard(
+                    playerId,
+                    stats.runsScored || 0,
                     stats.ballsFaced,
-                    stats.foursScored,
-                    stats.sixesScored,
-                    stats.dismissalType,
-                    stats.bowlerId,
-                    stats.fielderId
-                );
-                homeTeamBatting.push(battingCard);
+                    stats.foursScored || 0,
+                    stats.sixesScored || 0,
+                    stats.dismissalType || null,
+                    stats.bowlerId || null
+                ));
             }
         });
 
-        this.homeTeam.bowlingOrder.forEach(playerId => {
-            const stats = this.scorecard[playerId];
-            if (stats && stats.ballsBowled > 0) {
-                const bowlingCard = new BowlingScorecard(
-                    stats.playerID,
-                    Math.floor(stats.ballsBowled / 6), // Convert balls to overs
-                    stats.maidens,
-                    stats.runsConceded,
-                    stats.wickets,
-                    stats.wides,
-                    stats.noBalls
-                );
-                homeTeamBowling.push(bowlingCard);
-            }
-        });
-
-        // Process away team stats
-        this.awayTeam.battingLineup.forEach(playerId => {
-            const stats = this.scorecard[playerId];
+        // Process second innings batting
+        secondBattingTeam.battingLineup.forEach(playerId => {
+            const stats = Object.values(this.scorecard)
+                .find(s => s.playerID === playerId && s.innings === 2);
             if (stats) {
-                const battingCard = new BattingScorecard(
-                    stats.playerID,
-                    stats.runsScored,
+                secondInningsBatting.push(new BattingScorecard(
+                    playerId,
+                    stats.runsScored || 0,
                     stats.ballsFaced,
-                    stats.foursScored,
-                    stats.sixesScored,
-                    stats.dismissalType,
-                    stats.bowlerId,
-                    stats.fielderId
-                );
-                awayTeamBatting.push(battingCard);
+                    stats.foursScored || 0,
+                    stats.sixesScored || 0,
+                    stats.dismissalType || null,
+                    stats.bowlerId || null
+                ));
             }
         });
 
-        this.awayTeam.bowlingOrder.forEach(playerId => {
-            const stats = this.scorecard[playerId];
-            if (stats && stats.ballsBowled > 0) {
-                const bowlingCard = new BowlingScorecard(
-                    stats.playerID,
-                    Math.floor(stats.ballsBowled / 6), // Convert balls to overs
-                    stats.maidens,
-                    stats.runsConceded,
-                    stats.wickets,
-                    stats.wides,
-                    stats.noBalls
-                );
-                awayTeamBowling.push(bowlingCard);
+        // Process first innings bowling (second batting team bowled first)
+        secondBattingTeam.bowlingOrder.forEach(playerId => {
+            const stats = Object.values(this.scorecard)
+                .find(s => s.playerID === playerId && s.innings === 1);
+            if (stats && stats.balls > 0) {
+                firstInningsBowling.push(new BowlingScorecard(
+                    playerId,
+                    stats.balls,
+                    stats.runs || 0,
+                    stats.wickets || 0,
+                    stats.maidens || 0,
+                    stats.wides || 0,
+                    stats.noBalls || 0,
+                    stats.byes || 0,
+                    stats.dotBalls || 0
+                ));
             }
         });
 
-        return new Scorecard(
-            this.innings1Score,
-            homeTeamBatting,
-            homeTeamBowling,
-            awayTeamBatting,
-            awayTeamBowling,
-            this.winningTeamID
-        );
+        // Process second innings bowling (first batting team bowled second)
+        firstBattingTeam.bowlingOrder.forEach(playerId => {
+            const stats = Object.values(this.scorecard)
+                .find(s => s.playerID === playerId && s.innings === 2);
+            if (stats && stats.balls > 0) {
+                secondInningsBowling.push(new BowlingScorecard(
+                    playerId,
+                    stats.balls,
+                    stats.runs || 0,
+                    stats.wickets || 0,
+                    stats.maidens || 0,
+                    stats.wides || 0,
+                    stats.noBalls || 0,
+                    stats.byes || 0,
+                    stats.dotBalls || 0
+                ));
+            }
+        });
+
+        return {
+            firstInningsBatting,
+            firstInningsBowling,
+            secondInningsBatting,
+            secondInningsBowling
+        };
     }
 
     private initializeScorecard() {
@@ -1016,14 +1249,15 @@ export class Game {
         for (const playerId of allPlayers) {
             this.scorecard[playerId] = {
                 playerID: playerId,
+                innings: 1,  // Start with first innings
                 // Batting stats
                 ballsFaced: 0,
                 runsScored: 0,
                 foursScored: 0,
                 sixesScored: 0,
                 // Bowling stats
-                ballsBowled: 0,
-                runsConceded: 0,
+                balls: 0,
+                runs: 0,
                 wickets: 0,
                 maidens: 0,
                 noBalls: 0,
@@ -1043,5 +1277,41 @@ export class Game {
                 fielderId: undefined
             };
         }
+    }
+
+    // Helper function to handle wicket
+    private handleWicket = (dismissalType: Dismissal, bowlerId: number, batter: Player) => {
+        this.wickets++;
+        // Get the next batter's index
+        const nextBatterIndex = this.wickets + 1;
+        
+        // Check if we have enough batters left
+        if (nextBatterIndex >= 11) {
+            // All out - remove the current batter
+            this.batters = [this.batters[this.nonStrikerIndex]];
+            this.strikerIndex = 0;
+            this.nonStrikerIndex = -1; // No non-striker when all out
+        } else {
+            // Keep non-striker in place and add new batter as striker
+            this.batters[this.strikerIndex] = nextBatterIndex;
+        }
+        
+        // Update scorecard
+        this.addToScorecard(batter.id, 0, false, false, false, false, true, dismissalType, bowlerId);
+    };
+
+    // Helper function to handle end of over
+    private handleEndOfOver() {
+        this.overs++;
+        this.addToPlayLog(`End of over ${this.overs} (${this.score}/${this.wickets})`);
+        this.balls = 0;
+
+        // Update bowler overs
+        const currentBowlerId = this.bowlingTeam.bowlingOrder[this.overs - 1];
+        const currentOvers = this.bowlerOvers.get(currentBowlerId) || 0;
+        this.bowlerOvers.set(currentBowlerId, currentOvers + 1);
+
+        // Swap striker and non-striker
+        [this.strikerIndex, this.nonStrikerIndex] = [this.nonStrikerIndex, this.strikerIndex];
     }
 } 

@@ -7,70 +7,7 @@ import { LocalStorageManager } from '@/utils/LocalStorageManager';
 import { League } from '@/models/League/League';
 import { SeasonScreen } from '@/screens/SeasonScreen';
 import { Game } from '@/models/Game/Game';
-
-interface GameState {
-    currentOver: number;
-    currentBall: number;
-    battingTeam: Team | null;
-    bowlingTeam: Team | null;
-    score: number;
-    wickets: number;
-    currentBatters: number[];
-    currentBowler: number;
-    playLog: string[];
-    isComplete: boolean;
-    currentPartnership?: {
-        runs: number;
-        balls: number;
-        batter1: number;
-        batter2: number;
-    };
-    runRate: number;
-    requiredRunRate?: number;
-    target?: number;
-    partnership: { runs: number; balls: number };
-    currentBatterStats: { 
-        [playerId: number]: { 
-            runs: number; 
-            balls: number; 
-            fours: number; 
-            sixes: number; 
-            strikeRate: number;
-            dismissal?: string;
-        } 
-    };
-    bowlerStats: { 
-        [playerId: number]: { 
-            overs: number; 
-            maidens: number; 
-            runs: number; 
-            wickets: number; 
-            economy: number;
-            dots: number;
-        } 
-    };
-    extras: {
-        wides: number;
-        noBalls: number;
-        legByes: number;
-        total: number;
-    };
-    innings: number;
-    lastOver: string[];
-    fallOfWickets: Array<{
-        score: number;
-        wicket: number;
-        overs: number;
-        batter: number;
-    }>;
-    didNotBat: number[];
-    partnerships: Array<{
-        wicket: number;
-        runs: number;
-        batter1: number;
-        batter2: number;
-    }>;
-}
+import { Player } from '@/models/Player/Player';
 
 export default function GamePage() {
     const searchParams = useSearchParams();
@@ -78,9 +15,26 @@ export default function GamePage() {
     const [homeTeam, setHomeTeam] = useState<Team | null>(null);
     const [awayTeam, setAwayTeam] = useState<Team | null>(null);
     const [game, setGame] = useState<Game | null>(null);
-    const [gameState, setGameState] = useState<GameState | null>(null);
     const [isPaused, setIsPaused] = useState(false);
     const [simSpeed, setSimSpeed] = useState(1000);
+    const [selectedPlayer, setSelectedPlayer] = useState<{
+        player: ReturnType<typeof getPlayerInfo>;
+        ratings: {
+            power: number;
+            technical: number;
+            temperament: number;
+            economy: number;
+            control: number;
+            wicketTaking: number;
+            clutch: number;
+            fitness: number;
+            fielding: number;
+            consistency: number;
+            leadership: number;
+            defensive: number;
+        };
+        fullPlayer: Player;
+    } | null>(null);
 
     // Helper function to get player info
     const getPlayerInfo = (playerId: number) => {
@@ -125,13 +79,6 @@ export default function GamePage() {
                     return;
                 }
 
-                console.log('Creating game with lineups:', {
-                    homeBatting: homeLineup.battingOrder,
-                    homeBowling: homeLineup.bowlingOrder,
-                    awayBatting: awayLineup.battingOrder,
-                    awayBowling: awayLineup.bowlingOrder
-                });
-
                 // Create game instance
                 const gameInstance = new Game(
                     {
@@ -154,74 +101,19 @@ export default function GamePage() {
                     loadedLeague.stadiums
                 );
 
-                console.log('Game initialized with:', {
-                    homeBattingLineup: gameInstance.currentBattingTeam.battingLineup,
-                    currentBatters: gameInstance.currentBatters,
-                    currentBatterIndex: gameInstance.currentBatters[0],
-                    currentBatterID: gameInstance.currentBattingTeam.battingLineup[gameInstance.currentBatters[0]]
-                });
-
                 setGame(gameInstance);
-
-                // Initialize game state
-                setGameState({
-                    currentOver: 0,
-                    currentBall: 0,
-                    battingTeam: homeTeam,
-                    bowlingTeam: awayTeam,
-                    score: 0,
-                    wickets: 0,
-                    currentBatters: [homeLineup.battingOrder[0], homeLineup.battingOrder[1]],
-                    currentBowler: awayLineup.bowlingOrder[0],
-                    playLog: ['Match started!'],
-                    isComplete: false,
-                    runRate: 0,
-                    partnership: { runs: 0, balls: 0 },
-                    currentBatterStats: {
-                        [homeLineup.battingOrder[0]]: { runs: 0, balls: 0, fours: 0, sixes: 0, strikeRate: 0 },
-                        [homeLineup.battingOrder[1]]: { runs: 0, balls: 0, fours: 0, sixes: 0, strikeRate: 0 }
-                    },
-                    bowlerStats: {
-                        [awayLineup.bowlingOrder[0]]: { overs: 0, maidens: 0, runs: 0, wickets: 0, economy: 0, dots: 0 }
-                    },
-                    extras: {
-                        wides: 0,
-                        noBalls: 0,
-                        legByes: 0,
-                        total: 0
-                    },
-                    innings: 1,
-                    lastOver: [],
-                    fallOfWickets: [],
-                    didNotBat: homeLineup.battingOrder.slice(2),
-                    partnerships: [{
-                        wicket: 0,
-                        runs: 0,
-                        batter1: homeLineup.battingOrder[0],
-                        batter2: homeLineup.battingOrder[1]
-                    }],
-                });
             }
         }
     }, [searchParams]);
 
     useEffect(() => {
-        if (!game || !gameState || gameState.isComplete || isPaused) return;
+        if (!game || game.isComplete || isPaused) return;
 
         const timer = setTimeout(() => {
             // Validate player IDs before simulation
             const currentBatterIndex = game.currentBatters[0];
             const currentBatterID = game.currentBattingTeam.battingLineup[currentBatterIndex];
             const currentBowlerID = game.currentBowlingTeam.bowlingOrder[Math.floor(game.currentBalls / 6)];
-            
-            console.log('Validating players:', {
-                currentBatterIndex,
-                battingLineup: game.currentBattingTeam.battingLineup,
-                currentBatterID,
-                bowlingOrder: game.currentBowlingTeam.bowlingOrder,
-                currentBowlerID,
-                currentBalls: game.currentBalls
-            });
             
             if (!currentBatterID || !currentBowlerID) {
                 console.error('Invalid player IDs:', { 
@@ -237,111 +129,284 @@ export default function GamePage() {
 
             // Simulate a single ball
             game.simulateBall();
-            
-            // Get updated scorecard
-            const scorecard = game.getScorecard();
-            const battingTeamIsHome = game.currentBattingTeam.teamName === homeTeam?.name;
-            const battingStats = battingTeamIsHome ? scorecard.homeTeamBatting : scorecard.awayTeamBatting;
-            const bowlingStats = battingTeamIsHome ? scorecard.awayTeamBowling : scorecard.homeTeamBowling;
-            
-            setGameState(prevState => {
-                if (!prevState) return prevState;
-
-                // Update state based on scorecard
-                return {
-                    ...prevState,
-                    currentOver: Math.floor(game.currentBalls / 6),
-                    currentBall: game.currentBalls % 6,
-                    score: battingTeamIsHome ? game.currentInnings1Score : game.currentScore,
-                    wickets: battingStats.filter(b => b.howOut).length,
-                    currentBatters: game.currentBatters.slice(0, 2).map(idx => 
-                        game.currentBattingTeam.battingLineup[idx]
-                    ),
-                    currentBowler: game.currentBowlingTeam.bowlingOrder[Math.floor(game.currentBalls / 6)],
-                    isComplete: game.isComplete,
-                    currentBatterStats: battingStats.reduce((acc, b) => ({
-                        ...acc,
-                        [b.playerId]: {
-                            runs: b.runs,
-                            balls: b.balls,
-                            fours: b.fours,
-                            sixes: b.sixes,
-                            strikeRate: b.balls > 0 ? (b.runs / b.balls) * 100 : 0,
-                            dismissal: b.howOut
-                        }
-                    }), {}),
-                    bowlerStats: bowlingStats.reduce((acc, b) => {
-                        const previousStats = prevState.bowlerStats[b.playerId] || { overs: 0, maidens: 0, runs: 0, wickets: 0, economy: 0, dots: 0 };
-                        const isCurrentBowler = b.playerId === game.currentBowlingTeam.bowlingOrder[Math.floor(game.currentBalls / 6)];
-                        
-                        // If this is the current bowler, add the current over's stats
-                        if (isCurrentBowler) {
-                            const ballsInOver = game.currentBalls % 6;
-                            return {
-                                ...acc,
-                                [b.playerId]: {
-                                    overs: previousStats.overs + (ballsInOver === 0 ? 1 : ballsInOver / 10),
-                                    maidens: b.maidens,
-                                    runs: b.runs,
-                                    wickets: b.wickets,
-                                    economy: b.runs / (previousStats.overs + (ballsInOver === 0 ? 1 : ballsInOver / 10)),
-                                    dots: previousStats.dots + (b.runs === 0 ? 1 : 0)
-                                }
-                            };
-                        }
-                        
-                        // For other bowlers, keep their previous stats
-                        return {
-                            ...acc,
-                            [b.playerId]: {
-                                ...previousStats,
-                                maidens: b.maidens,
-                                runs: b.runs,
-                                wickets: b.wickets,
-                                economy: previousStats.overs > 0 ? b.runs / previousStats.overs : 0
-                            }
-                        };
-                    }, {}),
-                    playLog: game.currentPlayLog,
-                    lastOver: game.currentPlayLog.slice(-6).map(log => {
-                        if (log.includes('FOUR')) return '4';
-                        if (log.includes('SIX')) return '6';
-                        if (log.includes('WICKET') || log.includes('CAUGHT') || log.includes('BOWLED') || log.includes('LBW') || log.includes('STUMPED')) return 'W';
-                        if (log.includes('dot ball')) return '0';
-                        const runs = log.match(/(\d+) runs?/);
-                        return runs ? runs[1] : '0';
-                    }),
-                    runRate: (battingTeamIsHome ? game.currentInnings1Score : game.currentScore) / 
-                        (Math.floor(game.currentBalls / 6) + ((game.currentBalls % 6) / 10)),
-                    extras: {
-                        wides: battingStats.reduce((sum, b) => sum + (b.howOut?.toString().includes('Wide') ? 1 : 0), 0),
-                        noBalls: battingStats.reduce((sum, b) => sum + (b.howOut?.toString().includes('No Ball') ? 1 : 0), 0),
-                        legByes: 0, // Not tracked in scorecard yet
-                        total: battingStats.reduce((sum, b) => sum + (b.howOut?.toString().includes('Wide') || b.howOut?.toString().includes('No Ball') ? 1 : 0), 0)
-                    },
-                    partnership: {
-                        runs: 0, // Will need to calculate from game state
-                        balls: 0
-                    },
-                    fallOfWickets: [], // Will need to track in game state
-                    partnerships: [], // Will need to track in game state
-                    didNotBat: game.currentBattingTeam.battingLineup.slice(game.currentBatters.length)
-                };
+            // Force a re-render by creating a new Game instance with the same state
+            setGame(prevGame => {
+                if (!prevGame) return null;
+                return Object.assign(Object.create(Object.getPrototypeOf(prevGame)), prevGame);
             });
         }, simSpeed);
 
         return () => clearTimeout(timer);
-    }, [game, gameState, isPaused, simSpeed, homeTeam]);
+    }, [game, isPaused, simSpeed]);
 
-    if (!league || !homeTeam || !awayTeam) {
+    if (!league || !homeTeam || !awayTeam || !game) {
         return <div>Loading...</div>;
     }
 
     // Get stadium from league
     const stadium = league.stadiums.find(s => s.id === homeTeam.stadium);
+    const scorecard = game.getScorecard();
+    const battingTeamIsHome = game.currentBattingTeam.teamName === homeTeam.name;
+    const currentBatterStats = battingTeamIsHome ? 
+        (game.currentInnings === 1 ? scorecard.firstInningsBatting : scorecard.secondInningsBatting) :
+        (game.currentInnings === 1 ? scorecard.firstInningsBatting : scorecard.secondInningsBatting);
+    const currentBowlerStats = battingTeamIsHome ? 
+        (game.currentInnings === 1 ? scorecard.firstInningsBowling : scorecard.secondInningsBowling) :
+        (game.currentInnings === 1 ? scorecard.firstInningsBowling : scorecard.secondInningsBowling);
+
+    // Debug logging
+    console.log('Current Innings:', game.currentInnings);
+    console.log('Batting Team Is Home:', battingTeamIsHome);
+    console.log('Current Batter Stats:', currentBatterStats);
+    console.log('Current Bowler Stats:', currentBowlerStats);
+    console.log('Full Scorecard:', scorecard);
 
     return (
         <div className="container mx-auto p-4">
+            {/* Player Info Modal */}
+            {selectedPlayer && (
+                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+                    <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+                        <div className="p-6">
+                            <div className="flex justify-between items-start mb-6">
+                                <div>
+                                    <h2 className="text-2xl font-bold text-gray-800">
+                                        {selectedPlayer.player?.name}
+                                    </h2>
+                                    <div className="text-gray-600 mt-1">
+                                        {selectedPlayer.player?.battingStyle} • {selectedPlayer.player?.bowlingStyle} • {selectedPlayer.player?.hand}
+                                        {selectedPlayer.player?.isWicketKeeper && ' • Wicket Keeper'}
+                                    </div>
+                                    <div className="mt-2 text-sm text-gray-500">
+                                        <div>Age: {selectedPlayer.fullPlayer.age}</div>
+                                    </div>
+                                </div>
+                                <button 
+                                    onClick={() => setSelectedPlayer(null)}
+                                    className="text-gray-500 hover:text-gray-700 transition-colors"
+                                >
+                                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                    </svg>
+                                </button>
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-6">
+                                {/* Batting Ratings */}
+                                <div className="bg-gradient-to-br from-blue-50 to-blue-100 rounded-lg p-4">
+                                    <h3 className="font-semibold text-lg text-blue-800 mb-3">Batting Ratings</h3>
+                                    <div className="space-y-3">
+                                        <div className="flex justify-between items-center">
+                                            <span className="text-blue-700">Power</span>
+                                            <div className="w-32 bg-blue-200 rounded-full h-2">
+                                                <div 
+                                                    className="bg-blue-600 rounded-full h-2" 
+                                                    style={{width: `${selectedPlayer.ratings.power}%`}}
+                                                ></div>
+                                            </div>
+                                            <span className="text-blue-700 w-8 text-right">{selectedPlayer.ratings.power}</span>
+                                        </div>
+                                        <div className="flex justify-between items-center">
+                                            <span className="text-blue-700">Technical</span>
+                                            <div className="w-32 bg-blue-200 rounded-full h-2">
+                                                <div 
+                                                    className="bg-blue-600 rounded-full h-2" 
+                                                    style={{width: `${selectedPlayer.ratings.technical}%`}}
+                                                ></div>
+                                            </div>
+                                            <span className="text-blue-700 w-8 text-right">{selectedPlayer.ratings.technical}</span>
+                                        </div>
+                                        <div className="flex justify-between items-center">
+                                            <span className="text-blue-700">Defensive</span>
+                                            <div className="w-32 bg-blue-200 rounded-full h-2">
+                                                <div 
+                                                    className="bg-blue-600 rounded-full h-2" 
+                                                    style={{width: `${selectedPlayer.ratings.defensive}%`}}
+                                                ></div>
+                                            </div>
+                                                    <span className="text-blue-700 w-8 text-right">{selectedPlayer.ratings.defensive}</span>
+                                        </div>
+                                        <div className="flex justify-between items-center">
+                                            <span className="text-blue-700">Temperament</span>
+                                            <div className="w-32 bg-blue-200 rounded-full h-2">
+                                                <div 
+                                                    className="bg-blue-600 rounded-full h-2" 
+                                                    style={{width: `${selectedPlayer.ratings.temperament}%`}}
+                                                ></div>
+                                            </div>
+                                            <span className="text-blue-700 w-8 text-right">{selectedPlayer.ratings.temperament}</span>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* Bowling Ratings */}
+                                <div className="bg-gradient-to-br from-green-50 to-green-100 rounded-lg p-4">
+                                    <h3 className="font-semibold text-lg text-green-800 mb-3">Bowling Ratings</h3>
+                                    <div className="space-y-3">
+                                        <div className="flex justify-between items-center">
+                                            <span className="text-green-700">Economy</span>
+                                            <div className="w-32 bg-green-200 rounded-full h-2">
+                                                <div 
+                                                    className="bg-green-600 rounded-full h-2" 
+                                                    style={{width: `${selectedPlayer.ratings.economy}%`}}
+                                                ></div>
+                                            </div>
+                                            <span className="text-green-700 w-8 text-right">{selectedPlayer.ratings.economy}</span>
+                                        </div>
+                                        <div className="flex justify-between items-center">
+                                            <span className="text-green-700">Control</span>
+                                            <div className="w-32 bg-green-200 rounded-full h-2">
+                                                <div 
+                                                    className="bg-green-600 rounded-full h-2" 
+                                                    style={{width: `${selectedPlayer.ratings.control}%`}}
+                                                ></div>
+                                            </div>
+                                            <span className="text-green-700 w-8 text-right">{selectedPlayer.ratings.control}</span>
+                                        </div>
+                                        <div className="flex justify-between items-center">
+                                            <span className="text-green-700">Wicket Taking</span>
+                                            <div className="w-32 bg-green-200 rounded-full h-2">
+                                                <div 
+                                                    className="bg-green-600 rounded-full h-2" 
+                                                    style={{width: `${selectedPlayer.ratings.wicketTaking}%`}}
+                                                ></div>
+                                            </div>
+                                            <span className="text-green-700 w-8 text-right">{selectedPlayer.ratings.wicketTaking}</span>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* Fielding & General Ratings */}
+                                <div className="bg-gradient-to-br from-purple-50 to-purple-100 rounded-lg p-4 col-span-2">
+                                    <div className="grid grid-cols-2 gap-6">
+                                        {/* Fielding Section */}
+                                        <div>
+                                            <h3 className="font-semibold text-lg text-purple-800 mb-3">Fielding</h3>
+                                            <div className="space-y-3">
+                                                <div className="flex justify-between items-center">
+                                                    <span className="text-purple-700">Fielding</span>
+                                                    <div className="w-32 bg-purple-200 rounded-full h-2">
+                                                        <div 
+                                                            className="bg-purple-600 rounded-full h-2" 
+                                                            style={{width: `${selectedPlayer.ratings.fielding}%`}}
+                                                        ></div>
+                                                    </div>
+                                                    <span className="text-purple-700 w-8 text-right">{selectedPlayer.ratings.fielding}</span>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        {/* General Ratings Section */}
+                                        <div>
+                                            <h3 className="font-semibold text-lg text-purple-800 mb-3">General</h3>
+                                            <div className="space-y-3">
+                                                <div className="flex justify-between items-center">
+                                                    <span className="text-purple-700">Fitness</span>
+                                                    <div className="w-32 bg-purple-200 rounded-full h-2">
+                                                        <div 
+                                                            className="bg-purple-600 rounded-full h-2" 
+                                                            style={{width: `${selectedPlayer.ratings.fitness}%`}}
+                                                        ></div>
+                                                    </div>
+                                                    <span className="text-purple-700 w-8 text-right">{selectedPlayer.ratings.fitness}</span>
+                                                </div>
+                                                <div className="flex justify-between items-center">
+                                                    <span className="text-purple-700">Leadership</span>
+                                                    <div className="w-32 bg-purple-200 rounded-full h-2">
+                                                        <div 
+                                                            className="bg-purple-600 rounded-full h-2" 
+                                                            style={{width: `${selectedPlayer.ratings.leadership}%`}}
+                                                        ></div>
+                                                    </div>
+                                                    <span className="text-purple-700 w-8 text-right">{selectedPlayer.ratings.leadership}</span>
+                                                </div>
+                                                <div className="flex justify-between items-center">
+                                                    <span className="text-purple-700">Consistency</span>
+                                                    <div className="w-32 bg-purple-200 rounded-full h-2">
+                                                        <div 
+                                                            className="bg-purple-600 rounded-full h-2" 
+                                                            style={{width: `${selectedPlayer.ratings.consistency}%`}}
+                                                        ></div>
+                                                    </div>
+                                                    <span className="text-purple-700 w-8 text-right">{selectedPlayer.ratings.consistency}</span>
+                                                </div>
+                                                <div className="flex justify-between items-center">
+                                                    <span className="text-purple-700">Clutch</span>
+                                                    <div className="w-32 bg-purple-200 rounded-full h-2">
+                                                        <div 
+                                                            className="bg-purple-600 rounded-full h-2" 
+                                                            style={{width: `${selectedPlayer.ratings.clutch}%`}}
+                                                        ></div>
+                                                    </div>
+                                                    <span className="text-purple-700 w-8 text-right">{selectedPlayer.ratings.clutch}</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* Overall Ratings */}
+                                <div className="bg-gradient-to-br from-amber-50 to-amber-100 rounded-lg p-4 col-span-2">
+                                    <h3 className="font-semibold text-lg text-amber-800 mb-3">Overall Ratings</h3>
+                                    <div className="grid grid-cols-2 gap-6">
+                                        <div className="space-y-3">
+                                            <div className="flex justify-between items-center">
+                                                <span className="text-amber-700">Overall</span>
+                                                <div className="w-32 bg-amber-200 rounded-full h-3">
+                                                    <div 
+                                                        className="bg-amber-600 rounded-full h-3" 
+                                                        style={{width: `${selectedPlayer.fullPlayer.playerRatings[selectedPlayer.fullPlayer.playerRatings.length - 1].overall}%`}}
+                                                    ></div>
+                                                </div>
+                                                <span className="text-amber-700 w-8 text-right">{selectedPlayer.fullPlayer.playerRatings[selectedPlayer.fullPlayer.playerRatings.length - 1].overall}</span>
+                                            </div>
+                                            <div className="flex justify-between items-center">
+                                                <span className="text-amber-700">Batting</span>
+                                                <div className="w-32 bg-amber-200 rounded-full h-3">
+                                                    <div 
+                                                        className="bg-amber-600 rounded-full h-3" 
+                                                        style={{width: `${selectedPlayer.fullPlayer.playerRatings[selectedPlayer.fullPlayer.playerRatings.length - 1].batting}%`}}
+                                                    ></div>
+                                                </div>
+                                                <span className="text-amber-700 w-8 text-right">{selectedPlayer.fullPlayer.playerRatings[selectedPlayer.fullPlayer.playerRatings.length - 1].batting}</span>
+                                            </div>
+                                            <div className="flex justify-between items-center">
+                                                <span className="text-amber-700">Bowling</span>
+                                                <div className="w-32 bg-amber-200 rounded-full h-3">
+                                                    <div 
+                                                        className="bg-amber-600 rounded-full h-3" 
+                                                        style={{width: `${selectedPlayer.fullPlayer.playerRatings[selectedPlayer.fullPlayer.playerRatings.length - 1].bowling}%`}}
+                                                    ></div>
+                                                </div>
+                                                <span className="text-amber-700 w-8 text-right">{selectedPlayer.fullPlayer.playerRatings[selectedPlayer.fullPlayer.playerRatings.length - 1].bowling}</span>
+                                            </div>
+                                            <div className="flex justify-between items-center">
+                                                <span className="text-amber-700">Fielding</span>
+                                                <div className="w-32 bg-amber-200 rounded-full h-3">
+                                                    <div 
+                                                        className="bg-amber-600 rounded-full h-3" 
+                                                        style={{width: `${selectedPlayer.fullPlayer.playerRatings[selectedPlayer.fullPlayer.playerRatings.length - 1].fieldingOverall}%`}}
+                                                    ></div>
+                                                </div>
+                                                <span className="text-amber-700 w-8 text-right">{selectedPlayer.fullPlayer.playerRatings[selectedPlayer.fullPlayer.playerRatings.length - 1].fieldingOverall}</span>
+                                            </div>
+                                        </div>
+                                        <div className="flex items-center justify-center">
+                                            <div className="text-center">
+                                                <div className="text-2xl font-bold text-amber-800">
+                                                    {selectedPlayer.fullPlayer.getPlayerRole()}
+                                                </div>
+                                                <div className="text-sm text-amber-600">Player Role</div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             <div className="grid grid-cols-12 gap-4">
                 {/* Match Header */}
                 <div className="col-span-12 bg-white rounded-lg shadow p-4">
@@ -400,204 +465,76 @@ export default function GamePage() {
                     {/* Score and Match Info */}
                     <div className="bg-white rounded-lg shadow p-4 mb-4">
                         <div className="text-3xl font-bold mb-2">
-                            {gameState?.battingTeam?.name || 'Unknown Team'} {gameState?.score || 0}/{gameState?.wickets || 0}
+                            {game.currentBattingTeam.teamName} {game.currentScore}/
+                            {currentBatterStats.filter(b => b.howOut).length}
+                            {game.currentInnings === 2 && ` (Target: ${game.currentInnings1Score + 1})`}
                         </div>
                         <div className="grid grid-cols-2 gap-4 text-sm">
                             <div>
-                                <div>Overs: {gameState?.currentOver || 0}.{gameState?.currentBall || 0}</div>
-                                <div>RR: {gameState?.runRate?.toFixed(2) || 0}</div>
-                                {gameState?.requiredRunRate && (
-                                    <div>Req. RR: {gameState.requiredRunRate.toFixed(2)}</div>
+                                <div>Overs: {game.currentOvers}.{game.currentBalls}</div>
+                                <div>RR: {((game.currentScore * 6) / 
+                                    Math.max(1, (game.currentOvers * 6 + game.currentBalls))).toFixed(2)}</div>
+                                {game.currentInnings === 2 && (
+                                    <div>REQ: {(((game.currentInnings1Score + 1 - game.currentScore) * 6) / 
+                                        Math.max(1, (120 - (game.currentOvers * 6 + game.currentBalls)))).toFixed(2)} RPO</div>
                                 )}
                             </div>
-                            {gameState?.target && (
-                                <div>
-                                    <div>Target: {gameState.target}</div>
-                                    <div>Need {gameState.target - (gameState.score || 0)} runs from {120 - ((gameState.currentOver || 0) * 6 + (gameState.currentBall || 0))} balls</div>
-                                </div>
-                            )}
+                            <div className="text-right">
+                                {game.currentInnings === 1 ? (
+                                    <div>First Innings</div>
+                                ) : (
+                                    <div>
+                                        First Innings: {game.currentInnings1Score}/{game.currentInnings1Wickets} 
+                                        ({Math.floor(game.currentInnings1Balls / 6)}.{game.currentInnings1Balls % 6} ov)
+                                    </div>
+                                )}
+                            </div>
                         </div>
                     </div>
 
-                    {/* Current Batters */}
-                    <div className="mb-4">
-                        <h3 className="text-lg font-semibold mb-2">Current Batters</h3>
-                        <table className="w-full">
-                            <thead>
-                                <tr>
-                                    <th className="text-left">Batter</th>
-                                    <th className="text-right">R</th>
-                                    <th className="text-right">B</th>
-                                    <th className="text-right">4s</th>
-                                    <th className="text-right">6s</th>
-                                    <th className="text-right">SR</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {gameState?.currentBatters.map((batterId, idx) => {
-                                    const stats = gameState.currentBatterStats[batterId];
-                                    const player = getPlayerInfo(batterId);
-                                    return (
-                                        <tr key={batterId} className="border-b last:border-0">
-                                            <td className="py-2">
-                                                {player?.name || 'Unknown'} {idx === 0 ? '*' : ''}
-                                            </td>
-                                            <td className="py-2">{stats?.runs || 0}</td>
-                                            <td className="py-2">{stats?.balls || 0}</td>
-                                            <td className="py-2">{stats?.fours || 0}</td>
-                                            <td className="py-2">{stats?.sixes || 0}</td>
-                                            <td className="py-2">{stats?.strikeRate.toFixed(1) || 0}</td>
-                                        </tr>
-                                    );
-                                })}
-                            </tbody>
-                        </table>
-                    </div>
-
-                    {/* Current Bowler - Moved up */}
-                    <div className="mb-4">
-                        <h3 className="text-lg font-semibold mb-2">Current Bowler</h3>
-                        <table className="w-full">
-                            <thead>
-                                <tr>
-                                    <th className="text-left">Bowler</th>
-                                    <th className="text-right">O</th>
-                                    <th className="text-right">M</th>
-                                    <th className="text-right">R</th>
-                                    <th className="text-right">W</th>
-                                    <th className="text-right">Econ</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {gameState?.currentBowler && (
-                                    <tr>
-                                        <td className="py-2">
-                                            {getPlayerInfo(gameState.currentBowler)?.name || 'Unknown'} *
-                                        </td>
-                                        <td className="py-2">{gameState.bowlerStats[gameState.currentBowler]?.overs || 0}</td>
-                                        <td className="py-2">{gameState.bowlerStats[gameState.currentBowler]?.maidens || 0}</td>
-                                        <td className="py-2">{gameState.bowlerStats[gameState.currentBowler]?.runs || 0}</td>
-                                        <td className="py-2">{gameState.bowlerStats[gameState.currentBowler]?.wickets || 0}</td>
-                                        <td className="py-2">{gameState.bowlerStats[gameState.currentBowler]?.economy.toFixed(1) || 0}</td>
-                                    </tr>
-                                )}
-                            </tbody>
-                        </table>
-                    </div>
-
-                    {/* Current Partnership */}
-                    <div className="mb-4">
-                        <h3 className="text-lg font-semibold mb-2">Current Partnership</h3>
-                        <p>
-                            {gameState && gameState.currentPartnership ? 
-                                `${gameState.currentPartnership.runs} runs from ${gameState.currentPartnership.balls} balls (SR: ${((gameState.currentPartnership.runs / Math.max(1, gameState.currentPartnership.balls)) * 100).toFixed(1)})` 
-                                : '0 runs from 0 balls (SR: 0.0)'}
-                        </p>
-                    </div>
-
-                    {/* Complete Batting Scorecard */}
-                    <div className="bg-white rounded-lg shadow p-4 mb-4">
-                        <h3 className="font-bold text-xl mb-4">{gameState?.battingTeam.name} Innings</h3>
-                        <table className="w-full text-sm">
-                            <thead>
-                                <tr className="text-left border-b">
-                                    <th className="pb-2 w-1/3">Batter</th>
-                                    <th className="pb-2"></th>
-                                    <th className="pb-2 text-right">R</th>
-                                    <th className="pb-2 text-right">B</th>
-                                    <th className="pb-2 text-right">M</th>
-                                    <th className="pb-2 text-right">4s</th>
-                                    <th className="pb-2 text-right">6s</th>
-                                    <th className="pb-2 text-right">SR</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {gameState && gameState.battingTeam?.lineup?.battingOrder?.map(batterId => {
-                                    const stats = gameState?.currentBatterStats[batterId] || { 
-                                        runs: 0, balls: 0, fours: 0, sixes: 0, strikeRate: 0 
-                                    };
-                                    const player = getPlayerInfo(batterId);
-                                    const isCurrentBatter = gameState?.currentBatters?.includes(batterId);
-                                    return (
-                                        <tr key={batterId} className="border-b last:border-0">
-                                            <td className="py-2">
-                                                <div className="font-medium">
-                                                    {player?.name || 'Unknown'} {isCurrentBatter ? '*' : ''}
-                                                </div>
-                                                <div className="text-xs text-gray-500">
-                                                    {player?.battingStyle} • {player?.hand}
-                                                    {player?.isWicketKeeper && ' • 🧤'}
-                                                </div>
-                                            </td>
-                                            <td className="py-2 text-xs text-gray-500">
-                                                {stats.dismissal || 'not out'}
-                                            </td>
-                                            <td className="py-2 text-right">{stats.runs}</td>
-                                            <td className="py-2 text-right">{stats.balls}</td>
-                                            <td className="py-2 text-right">-</td>
-                                            <td className="py-2 text-right">{stats.fours}</td>
-                                            <td className="py-2 text-right">{stats.sixes}</td>
-                                            <td className="py-2 text-right">{stats.strikeRate.toFixed(1)}</td>
-                                        </tr>
-                                    );
-                                })}
-                                <tr className="border-t border-gray-300">
-                                    <td colSpan={2} className="py-2 font-medium">Extras</td>
-                                    <td colSpan={6} className="py-2">
-                                        {gameState?.extras?.total || 0} (w {gameState?.extras?.wides || 0}, 
-                                        nb {gameState?.extras?.noBalls || 0}, lb {gameState?.extras?.legByes || 0})
-                                    </td>
-                                </tr>
-                                <tr className="border-t border-gray-300 font-bold">
-                                    <td colSpan={2} className="py-2">Total</td>
-                                    <td colSpan={6} className="py-2">
-                                        {gameState?.score}/{gameState?.wickets} ({gameState?.currentOver}.{gameState?.currentBall} Ov)
-                                    </td>
-                                </tr>
-                            </tbody>
-                        </table>
-
-                        {/* Fall of Wickets */}
-                        {gameState && gameState.fallOfWickets && gameState.fallOfWickets.length > 0 && (
-                            <div className="mt-4">
-                                <h3 className="text-lg font-semibold">Fall of Wickets</h3>
-                                <p>
-                                    {gameState.fallOfWickets.map((fow) => (
-                                        `${fow.wicket}-${fow.score} (${getPlayerInfo(fow.batter)?.name}, ${fow.overs.toFixed(1)} ov)`
-                                    )).join(", ")}
-                                </p>
-                            </div>
-                        )}
-
-                        {/* Did Not Bat */}
-                        {gameState && gameState.didNotBat && gameState.didNotBat.length > 0 && (
-                            <div className="mt-4">
-                                <h3 className="text-lg font-semibold">Did Not Bat</h3>
-                                <p>{gameState.didNotBat.map(id => getPlayerInfo(id)?.name).join(", ")}</p>
-                            </div>
-                        )}
-
-                        {/* Partnerships */}
-                        <div className="mt-4">
-                            <h4 className="font-bold mb-2">Partnerships</h4>
-                            <table className="w-full text-sm">
+                    {/* Current Batters and Bowler Section */}
+                    <div className="grid grid-cols-2 gap-4 mb-4">
+                        {/* Current Batters */}
+                        <div className="bg-white rounded-lg shadow p-4">
+                            <h3 className="text-lg font-semibold mb-3 text-gray-800">Current Batters</h3>
+                            <table className="w-full">
                                 <thead>
-                                    <tr className="text-left border-b">
-                                        <th className="pb-2">Wicket</th>
-                                        <th className="pb-2">Runs</th>
-                                        <th className="pb-2">Batters</th>
+                                    <tr className="text-sm text-gray-600 border-b">
+                                        <th className="text-left pb-2">Batter</th>
+                                        <th className="text-right pb-2">R</th>
+                                        <th className="text-right pb-2">B</th>
+                                        <th className="text-right pb-2">4s</th>
+                                        <th className="text-right pb-2">6s</th>
+                                        <th className="text-right pb-2">SR</th>
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {gameState?.partnerships.map((p, index) => {
-                                        const batter1 = getPlayerInfo(p.batter1);
-                                        const batter2 = getPlayerInfo(p.batter2);
+                                    {game.currentBatters.slice(0, 2).map((batterIndex, idx) => {
+                                        const batterId = game.currentBattingTeam.battingLineup[batterIndex];
+                                        const stats = currentBatterStats.find(s => s.playerId === batterId);
+                                        const player = getPlayerInfo(batterId);
                                         return (
-                                            <tr key={index} className="border-b">
-                                                <td className="py-2">{index + 1}</td>
-                                                <td className="py-2">{p.runs}</td>
+                                            <tr key={`current_batter_${batterId}_${idx}`} className="border-b last:border-0">
                                                 <td className="py-2">
-                                                    {batter1?.name} - {batter2?.name}
+                                                    <div 
+                                                        className="cursor-pointer hover:text-blue-600 transition-colors"
+                                                        onClick={() => {
+                                                            const fullPlayer = league.players.find(p => p.id === batterId);
+                                                            const ratings = fullPlayer?.playerRatings.slice(-1)[0];
+                                                            if (player && ratings) {
+                                                                setSelectedPlayer({ player, ratings, fullPlayer });
+                                                            }
+                                                        }}
+                                                    >
+                                                        {player?.name || 'Unknown'} {idx === 0 ? '*' : ''}
+                                                    </div>
+                                                </td>
+                                                <td className="py-2 text-right font-medium">{stats?.runs || 0}</td>
+                                                <td className="py-2 text-right">{stats?.balls || 0}</td>
+                                                <td className="py-2 text-right">{stats?.fours || 0}</td>
+                                                <td className="py-2 text-right">{stats?.sixes || 0}</td>
+                                                <td className="py-2 text-right text-gray-600">
+                                                    {stats?.balls ? ((stats.runs / stats.balls) * 100).toFixed(1) : '0.0'}
                                                 </td>
                                             </tr>
                                         );
@@ -605,11 +542,146 @@ export default function GamePage() {
                                 </tbody>
                             </table>
                         </div>
+
+                        {/* Current Bowler */}
+                        <div className="bg-white rounded-lg shadow p-4">
+                            <h3 className="text-lg font-semibold mb-3 text-gray-800">Current Bowler</h3>
+                            <table className="w-full">
+                                <thead>
+                                    <tr className="text-sm text-gray-600 border-b">
+                                        <th className="text-left pb-2">Bowler</th>
+                                        <th className="text-right pb-2">O</th>
+                                        <th className="text-right pb-2">M</th>
+                                        <th className="text-right pb-2">R</th>
+                                        <th className="text-right pb-2">W</th>
+                                        <th className="text-right pb-2">Econ</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {(() => {
+                                        const currentBowlerId = game.currentBowlingTeam.bowlingOrder[game.currentOvers];
+                                        const stats = currentBowlerStats.find(s => s.playerId === currentBowlerId);
+                                        const player = getPlayerInfo(currentBowlerId);
+                                        return (
+                                            <tr key={`current_bowler_${currentBowlerId}_${game.currentOvers}_${game.currentBalls}`}>
+                                                <td className="py-2">
+                                                    <div 
+                                                        className="cursor-pointer hover:text-blue-600 transition-colors"
+                                                        onClick={() => {
+                                                            const fullPlayer = league.players.find(p => p.id === currentBowlerId);
+                                                            const ratings = fullPlayer?.playerRatings.slice(-1)[0];
+                                                            if (player && ratings) {
+                                                                setSelectedPlayer({ player, ratings, fullPlayer });
+                                                            }
+                                                        }}
+                                                    >
+                                                        {player?.name || 'Unknown'} *
+                                                    </div>
+                                                </td>
+                                                <td className="py-2 text-right font-medium">
+                                                    {Math.floor((stats?.balls || 0) / 6)}.{(stats?.balls || 0) % 6}
+                                                </td>
+                                                <td className="py-2 text-right">{stats?.maidens || 0}</td>
+                                                <td className="py-2 text-right">{stats?.runs || 0}</td>
+                                                <td className="py-2 text-right">{stats?.wickets || 0}</td>
+                                                <td className="py-2 text-right text-gray-600">
+                                                    {stats?.balls ? ((stats.runs * 6) / stats.balls).toFixed(1) : '0.0'}
+                                                </td>
+                                            </tr>
+                                        );
+                                    })()}
+                                </tbody>
+                            </table>
+                        </div>
                     </div>
 
-                    {/* Complete Bowling Scorecard */}
-                    <div className="bg-white rounded-lg shadow p-4">
-                        <h3 className="font-bold text-xl mb-4">Bowling</h3>
+
+
+                    {/* Complete Scorecards */}
+                    {/* First Innings Batting */}
+                    <div className="bg-white rounded-lg shadow p-4 mb-4">
+                        <h3 className="font-bold text-xl mb-4">
+                            {game.currentInnings === 1 ? 'Current Innings' : 'First Innings'} - {game.currentInnings === 1 ? game.currentBattingTeam.teamName : (battingTeamIsHome ? awayTeam.name : homeTeam.name)} Batting
+                        </h3>
+                        <table className="w-full text-sm">
+                            <thead>
+                                <tr className="text-left border-b">
+                                    <th className="pb-2 w-1/3">Batter</th>
+                                    <th className="pb-2"></th>
+                                    <th className="pb-2 text-right">R</th>
+                                    <th className="pb-2 text-right">B</th>
+                                    <th className="pb-2 text-right">4s</th>
+                                    <th className="pb-2 text-right">6s</th>
+                                    <th className="pb-2 text-right">SR</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {(game.currentInnings === 1 ? currentBatterStats : scorecard.firstInningsBatting).map((stats) => {
+                                    const player = getPlayerInfo(stats.playerId);
+                                    return (
+                                        <tr key={stats.playerId} className="border-b last:border-0">
+                                            <td className="py-2">
+                                                <div className="font-medium">
+                                                    {player?.name || 'Unknown'}
+                                                </div>
+                                                <div className="text-xs text-gray-500">
+                                                    {player?.battingStyle} • {player?.hand}
+                                                    {player?.isWicketKeeper && ' • 🧤'}
+                                                </div>
+                                            </td>
+                                            <td className="py-2 text-xs text-gray-500">
+                                                {stats.howOut?.toString() || 'not out'}
+                                            </td>
+                                            <td className="py-2 text-right">{stats.runs}</td>
+                                            <td className="py-2 text-right">{stats.balls}</td>
+                                            <td className="py-2 text-right">{stats.fours}</td>
+                                            <td className="py-2 text-right">{stats.sixes}</td>
+                                            <td className="py-2 text-right">
+                                                {stats.balls > 0 ? ((stats.runs / stats.balls) * 100).toFixed(1) : '0.0'}
+                                            </td>
+                                        </tr>
+                                    );
+                                })}
+                                {/* Yet to Bat */}
+                                {(() => {
+                                    const battedPlayers = new Set((game.currentInnings === 1 ? currentBatterStats : scorecard.firstInningsBatting).map(s => s.playerId));
+                                    const currentTeam = game.currentInnings === 1 ? 
+                                        game.currentBattingTeam : 
+                                        (battingTeamIsHome ? game.currentBowlingTeam : game.currentBattingTeam);
+                                    return currentTeam.battingLineup
+                                        .filter((id: number) => !battedPlayers.has(id))
+                                        .map((playerId: number) => {
+                                            const player = getPlayerInfo(playerId);
+                                            return (
+                                                <tr key={`yet_to_bat_${playerId}`} className="border-b last:border-0 text-gray-500">
+                                                    <td className="py-2">
+                                                        <div className="font-medium">
+                                                            {player?.name || 'Unknown'}
+                                                        </div>
+                                                        <div className="text-xs">
+                                                            {player?.battingStyle} • {player?.hand}
+                                                            {player?.isWicketKeeper && ' • 🧤'}
+                                                        </div>
+                                                    </td>
+                                                    <td className="py-2 text-xs">Yet to bat</td>
+                                                    <td className="py-2 text-right">-</td>
+                                                    <td className="py-2 text-right">-</td>
+                                                    <td className="py-2 text-right">-</td>
+                                                    <td className="py-2 text-right">-</td>
+                                                    <td className="py-2 text-right">-</td>
+                                                </tr>
+                                            );
+                                        });
+                                })()}
+                            </tbody>
+                        </table>
+                    </div>
+
+                    {/* First Innings Bowling */}
+                    <div className="bg-white rounded-lg shadow p-4 mb-4">
+                        <h3 className="font-bold text-xl mb-4">
+                            {game.currentInnings === 1 ? 'Current Innings' : 'First Innings'} - {game.currentInnings === 1 ? game.currentBowlingTeam.teamName : (battingTeamIsHome ? homeTeam.name : awayTeam.name)} Bowling
+                        </h3>
                         <table className="w-full text-sm">
                             <thead>
                                 <tr className="text-left border-b">
@@ -618,63 +690,175 @@ export default function GamePage() {
                                     <th className="pb-2 text-right">M</th>
                                     <th className="pb-2 text-right">R</th>
                                     <th className="pb-2 text-right">W</th>
-                                    <th className="pb-2 text-right">Dots</th>
                                     <th className="pb-2 text-right">Econ</th>
                                 </tr>
                             </thead>
                             <tbody>
-                                {Object.entries(gameState?.bowlerStats || {}).map(([bowlerId, stats]) => {
-                                    const player = getPlayerInfo(Number(bowlerId));
-                                    const isCurrentBowler = gameState?.currentBowler === Number(bowlerId);
-                                    return (
-                                        <tr key={bowlerId} className="border-b last:border-0">
-                                            <td className="py-2">
-                                                <div className="font-medium">
-                                                    {player?.name || 'Unknown'} {isCurrentBowler ? '*' : ''}
-                                                </div>
-                                                <div className="text-xs text-gray-500">
-                                                    {player?.bowlingStyle} • {player?.hand}
-                                                </div>
-                                            </td>
-                                            <td className="py-2 text-right">{stats.overs}</td>
-                                            <td className="py-2 text-right">{stats.maidens}</td>
-                                            <td className="py-2 text-right">{stats.runs}</td>
-                                            <td className="py-2 text-right">{stats.wickets}</td>
-                                            <td className="py-2 text-right">{stats.dots}</td>
-                                            <td className="py-2 text-right">{stats.economy.toFixed(1)}</td>
-                                        </tr>
-                                    );
-                                })}
+                                {(game.currentInnings === 1 ? currentBowlerStats : scorecard.firstInningsBowling)
+                                    .filter((stats, index, self) => 
+                                        index === self.findIndex((s) => s.playerId === stats.playerId)
+                                    )
+                                    .map((stats) => {
+                                        const player = getPlayerInfo(stats.playerId);
+                                        return (
+                                            <tr key={`first_innings_${stats.playerId}`} className="border-b last:border-0">
+                                                <td className="py-2">
+                                                    <div className="font-medium">
+                                                        {player?.name || 'Unknown'}
+                                                    </div>
+                                                    <div className="text-xs text-gray-500">
+                                                        {player?.bowlingStyle} • {player?.hand}
+                                                    </div>
+                                                </td>
+                                                <td className="py-2 text-right">
+                                                    {Math.floor((stats?.balls || 0) / 6)}.{(stats?.balls || 0) % 6}
+                                                </td>
+                                                <td className="py-2 text-right">{stats?.maidens || 0}</td>
+                                                <td className="py-2 text-right">{stats?.runs || 0}</td>
+                                                <td className="py-2 text-right">{stats?.wickets || 0}</td>
+                                                <td className="py-2 text-right text-gray-600">
+                                                    {stats?.balls ? ((stats.runs * 6) / stats.balls).toFixed(1) : '0.0'}
+                                                </td>
+                                            </tr>
+                                        );
+                                    })}
                             </tbody>
                         </table>
                     </div>
+
+                    {/* Second Innings Batting */}
+                    {game.currentInnings === 2 && (
+                        <div className="bg-white rounded-lg shadow p-4 mb-4">
+                            <h3 className="font-bold text-xl mb-4">Current Innings - {game.currentBattingTeam.teamName} Batting</h3>
+                            <table className="w-full text-sm">
+                                <thead>
+                                    <tr className="text-left border-b">
+                                        <th className="pb-2 w-1/3">Batter</th>
+                                        <th className="pb-2"></th>
+                                        <th className="pb-2 text-right">R</th>
+                                        <th className="pb-2 text-right">B</th>
+                                        <th className="pb-2 text-right">4s</th>
+                                        <th className="pb-2 text-right">6s</th>
+                                        <th className="pb-2 text-right">SR</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {currentBatterStats.map((stats) => {
+                                        const player = getPlayerInfo(stats.playerId);
+                                        return (
+                                            <tr key={stats.playerId} className="border-b last:border-0">
+                                                <td className="py-2">
+                                                    <div className="font-medium">
+                                                        {player?.name || 'Unknown'}
+                                                    </div>
+                                                    <div className="text-xs text-gray-500">
+                                                        {player?.battingStyle} • {player?.hand}
+                                                        {player?.isWicketKeeper && ' • 🧤'}
+                                                    </div>
+                                                </td>
+                                                <td className="py-2 text-xs text-gray-500">
+                                                    {stats.howOut?.toString() || 'not out'}
+                                                </td>
+                                                <td className="py-2 text-right">{stats.runs}</td>
+                                                <td className="py-2 text-right">{stats.balls}</td>
+                                                <td className="py-2 text-right">{stats.fours}</td>
+                                                <td className="py-2 text-right">{stats.sixes}</td>
+                                                <td className="py-2 text-right">
+                                                    {stats.balls > 0 ? ((stats.runs / stats.balls) * 100).toFixed(1) : '0.0'}
+                                                </td>
+                                            </tr>
+                                        );
+                                    })}
+                                    {/* Yet to Bat */}
+                                    {(() => {
+                                        const battedPlayers = new Set(currentBatterStats.map(s => s.playerId));
+                                        return game.currentBattingTeam.battingLineup
+                                            .filter(id => !battedPlayers.has(id))
+                                            .map(playerId => {
+                                                const player = getPlayerInfo(playerId);
+                                                return (
+                                                    <tr key={`yet_to_bat_${playerId}`} className="border-b last:border-0 text-gray-500">
+                                                        <td className="py-2">
+                                                            <div className="font-medium">
+                                                                {player?.name || 'Unknown'}
+                                                            </div>
+                                                            <div className="text-xs">
+                                                                {player?.battingStyle} • {player?.hand}
+                                                                {player?.isWicketKeeper && ' • 🧤'}
+                                                            </div>
+                                                        </td>
+                                                        <td className="py-2 text-xs">Yet to bat</td>
+                                                        <td className="py-2 text-right">-</td>
+                                                        <td className="py-2 text-right">-</td>
+                                                        <td className="py-2 text-right">-</td>
+                                                        <td className="py-2 text-right">-</td>
+                                                        <td className="py-2 text-right">-</td>
+                                                    </tr>
+                                                );
+                                            });
+                                    })()}
+                                </tbody>
+                            </table>
+                        </div>
+                    )}
+
+                    {/* Second Innings Bowling */}
+                    {game.currentInnings === 2 && (
+                        <div className="bg-white rounded-lg shadow p-4">
+                            <h3 className="font-bold text-xl mb-4">Current Innings - {game.currentBowlingTeam.teamName} Bowling</h3>
+                            <table className="w-full text-sm">
+                                <thead>
+                                    <tr className="text-left border-b">
+                                        <th className="pb-2 w-1/3">Bowler</th>
+                                        <th className="pb-2 text-right">O</th>
+                                        <th className="pb-2 text-right">M</th>
+                                        <th className="pb-2 text-right">R</th>
+                                        <th className="pb-2 text-right">W</th>
+                                        <th className="pb-2 text-right">Econ</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {currentBowlerStats
+                                        .filter((stats, index, self) => 
+                                            index === self.findIndex((s) => s.playerId === stats.playerId)
+                                        )
+                                        .map((stats) => {
+                                            const player = getPlayerInfo(stats.playerId);
+                                            return (
+                                                <tr key={`second_innings_${stats.playerId}`} className="border-b last:border-0">
+                                                    <td className="py-2">
+                                                        <div className="font-medium">
+                                                            {player?.name || 'Unknown'}
+                                                        </div>
+                                                        <div className="text-xs text-gray-500">
+                                                            {player?.bowlingStyle} • {player?.hand}
+                                                        </div>
+                                                    </td>
+                                                    <td className="py-2 text-right">
+                                                        {Math.floor((stats?.balls || 0) / 6)}.{(stats?.balls || 0) % 6}
+                                                    </td>
+                                                    <td className="py-2 text-right">{stats?.maidens || 0}</td>
+                                                    <td className="py-2 text-right">{stats?.runs || 0}</td>
+                                                    <td className="py-2 text-right">{stats?.wickets || 0}</td>
+                                                    <td className="py-2 text-right text-gray-600">
+                                                        {stats?.balls ? ((stats.runs * 6) / stats.balls).toFixed(1) : '0.0'}
+                                                    </td>
+                                                </tr>
+                                            );
+                                        })}
+                                </tbody>
+                            </table>
+                        </div>
+                    )}
                 </div>
 
                 {/* Side Panel */}
                 <div className="col-span-4">
-                    {/* Last Over */}
-                    <div className="bg-white rounded-lg shadow p-4 mb-4">
-                        <h3 className="font-bold text-lg mb-2">Last Over</h3>
-                        <div className="flex gap-2">
-                            {gameState?.lastOver.map((ball, i) => (
-                                <div key={i} className={`
-                                    w-8 h-8 rounded-full flex items-center justify-center font-bold
-                                    ${ball === 'W' ? 'bg-red-100 text-red-700' :
-                                      ball === '4' ? 'bg-blue-100 text-blue-700' :
-                                      ball === '6' ? 'bg-green-100 text-green-700' :
-                                      'bg-gray-100 text-gray-700'}
-                                `}>
-                                    {ball}
-                                </div>
-                            ))}
-                        </div>
-                    </div>
-
                     {/* Play Log */}
                     <div className="bg-white rounded-lg shadow p-4 h-[600px] overflow-y-auto">
                         <h3 className="font-bold text-lg mb-4 sticky top-0 bg-white">Play by Play</h3>
-                        <div className="space-y-2">
-                            {gameState?.playLog.map((play, i) => (
+                        <div className="space-y-2 flex flex-col-reverse">
+                            {game.currentPlayLog.map((play, i) => (
                                 <div key={i} className="text-sm p-2 bg-gray-50 rounded">
                                     {play}
                                 </div>

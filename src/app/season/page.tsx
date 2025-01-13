@@ -9,7 +9,6 @@ import { Team } from '../../models/Team/Team';
 import { ScheduleGame } from '../../models/Season/ScheduleGame';
 import { Game } from '../../models/Game/Game';
 import { BattingScorecard } from '../../models/Scorecard/BattingScorecard';
-import { BowlingScorecard } from '../../models/Scorecard/BowlingScorecard';
 import { Scorecard } from '../../models/Scorecard/Scorecard';
 
 type TabType = 'schedule' | 'lineups' | 'standings';
@@ -99,17 +98,23 @@ export default function SeasonPage() {
 
         // Get scorecard from game results
         const scorecard = gameInstance.getScorecard();
-        scorecard.gameId = game.id;
+        const newScorecard = new Scorecard(
+            game.id,
+            scorecard.firstInningsBatting,
+            scorecard.firstInningsBowling,
+            scorecard.secondInningsBatting,
+            scorecard.secondInningsBowling
+        );
 
         // Update game with scores
-        game.homeScore = getTotalScore(scorecard.homeTeamBatting);
-        game.awayScore = getTotalScore(scorecard.awayTeamBatting);
-        game.homeWickets = getWicketsFallen(scorecard.homeTeamBatting);
-        game.awayWickets = getWicketsFallen(scorecard.awayTeamBatting);
+        game.homeScore = getTotalScore(scorecard.firstInningsBatting);
+        game.awayScore = getTotalScore(scorecard.secondInningsBatting);
+        game.homeWickets = getWicketsFallen(scorecard.firstInningsBatting);
+        game.awayWickets = getWicketsFallen(scorecard.secondInningsBatting);
 
         // Update season with new scorecard
         const season = seasonScreen.getCurrentSeason();
-        season.scorecards.push(scorecard);
+        season.scorecards.push(newScorecard);
         season.currentGame++;
         
         // Save updated season
@@ -123,17 +128,6 @@ export default function SeasonPage() {
     const handlePlayGame = (homeTeam: Team, awayTeam: Team) => {
         // Navigate to game page with teams as params
         window.location.href = `/game?homeTeam=${homeTeam.id}&awayTeam=${awayTeam.id}`;
-    };
-
-    // Helper function to format batting stats
-    const formatBattingStats = (stats: BattingScorecard) => {
-        if (!stats.howOut) return 'Did not bat';
-        return `${stats.runs} (${stats.balls}) - ${stats.fours}x4s, ${stats.sixes}x6s`;
-    };
-
-    // Helper function to format bowling stats
-    const formatBowlingStats = (stats: BowlingScorecard) => {
-        return `${stats.overs}-${stats.maidens}-${stats.runs}-${stats.wickets}`;
     };
 
     const handleViewScorecard = (game: ScheduleGame) => {
@@ -226,12 +220,12 @@ export default function SeasonPage() {
                                                 return (
                                                     <tr key={i} className="border-b">
                                                         <td className="py-2">{player.name}</td>
-                                                        <td className="py-2">{stats.overs}</td>
+                                                        <td className="py-2">{ballsToOvers(stats.balls)}</td>
                                                         <td className="py-2">{stats.maidens}</td>
                                                         <td className="py-2">{stats.runs}</td>
                                                         <td className="py-2">{stats.wickets}</td>
                                                         <td className="py-2">
-                                                            {stats.overs > 0 ? (stats.runs / stats.overs).toFixed(1) : 0}
+                                                            {stats.balls > 0 ? (stats.runs / (stats.balls / 6)).toFixed(1) : 0}
                                                         </td>
                                                     </tr>
                                                 );
@@ -307,12 +301,12 @@ export default function SeasonPage() {
                                                 return (
                                                     <tr key={i} className="border-b">
                                                         <td className="py-2">{player.name}</td>
-                                                        <td className="py-2">{stats.overs}</td>
+                                                        <td className="py-2">{ballsToOvers(stats.balls)}</td>
                                                         <td className="py-2">{stats.maidens}</td>
                                                         <td className="py-2">{stats.runs}</td>
                                                         <td className="py-2">{stats.wickets}</td>
                                                         <td className="py-2">
-                                                            {stats.overs > 0 ? (stats.runs / stats.overs).toFixed(1) : 0}
+                                                            {stats.balls > 0 ? (stats.runs / (stats.balls / 6)).toFixed(1) : 0}
                                                         </td>
                                                     </tr>
                                                 );
@@ -411,7 +405,6 @@ export default function SeasonPage() {
         );
     };
 
-    // Helper functions for scorecard display
     const getTotalScore = (battingScores: BattingScorecard[]): number => {
         return battingScores.reduce((total, score) => total + score.runs, 0);
     };
@@ -420,7 +413,12 @@ export default function SeasonPage() {
         return battingScores.filter(score => score.howOut !== null).length;
     };
 
-    // Add a helper function to format hand display
+    const ballsToOvers = (balls: number): string => {
+        const overs = Math.floor(balls / 6);
+        const remainingBalls = balls % 6;
+        return remainingBalls > 0 ? `${overs}.${remainingBalls}` : `${overs}`;
+    };
+
     const formatHand = (hand: string): string => {
         return hand === 'Right Handed' ? 'R' : 'L';
     };
